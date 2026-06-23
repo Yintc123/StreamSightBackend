@@ -2,8 +2,10 @@ from fastapi import FastAPI
 
 from .api import api_router
 from .core.config import get_app_settings
+from .core.logging import setup_logging
 
 def create_app() -> FastAPI:
+    setup_logging()
     app_settings = get_app_settings()
 
     app: FastAPI = FastAPI(

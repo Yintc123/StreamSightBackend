@@ -1,11 +1,7 @@
-from typing import Literal
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# Literal 用於限制變數只能是某幾個固定值，Literal alias 用駝峰是 Python 慣例（同 List/Dict/Optional）
-LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
-# stage / test 預留，待建立對應 Settings 後加入 _ENV_MAP
-AppEnv = Literal["local", "development", "stage", "production", "test"]
+from app.core.enums import AppEnv, LogLevel
 
 class BaseAppSettings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -16,22 +12,23 @@ class BaseAppSettings(BaseSettings):
     )
 
     # app
-    app_env: AppEnv = Field(default="local", description="local env")
+    app_env: AppEnv = Field(default=AppEnv.LOCAL, description="Application environment name")
     app_name: str = "fastapi-foundation-template"
     app_version: str = "1.0.0"
     app_debug: bool = False
 
     # logging
-    log_level: LogLevel = Field(default="INFO", description="Root logger level")
+    log_level: LogLevel = Field(default=LogLevel.INFO, description="Root logger level")
 
     # app
     @field_validator("app_env", mode="before")
     @classmethod
-    def _normalize_app_env(cls, validator: str) -> str:
-        return validator.lower() if isinstance(validator, str) else validator
+    def _normalize_app_env(cls, value: str) -> str:
+        return value.lower() if isinstance(value, str) else value
 
     # logging
     @field_validator("log_level", mode="before")
     @classmethod
-    def _normalize_log_level(cls, validator: str) -> str:
-        return validator.upper() if isinstance(validator, str) else validator
+    def _normalize_log_level(cls, value: str) -> str:
+        return value.upper() if isinstance(value, str) else value
+    
