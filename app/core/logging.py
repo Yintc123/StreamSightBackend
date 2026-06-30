@@ -1,9 +1,10 @@
 import logging
 
 from app.core.config import get_app_settings
+from app.core.context import request_id_ctx
 from app.core.enums import LogLevel
 
-_LOG_FORMAT: str = "%(asctime)s [%(levelname)s] %(name)s - %(message)s"
+_LOG_FORMAT: str = "%(asctime)s [%(levelname)s] [%(request_id)s] %(name)s - %(message)s"
 _LOG_DATEFMT: str = "%Y-%m-%d %H:%M:%S"
 
 # 針對套件設定 log level
@@ -12,6 +13,16 @@ _NOISY_LOGGERS: dict[str, LogLevel] = {
     # "httpx": LogLevel.WARNING,
     # "urllib3": LogLevel.WARNING
 }
+
+# logging.Filter 是攔截器，掛在 handler 上時，在 formatter 處理 record 之前執行
+class _RequestIdFilter(logging.Filter):
+    # 從 ContextVar 取得 request_id 並且注入到每筆 log
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        # LogRecord 是「一筆 log 的資料容器」，record 新增 request_id 屬性，將 request_id 注入每一筆 record
+        record.request_id = request_id_ctx.get()
+        # True 保留 / False 丟棄這筆 log
+        return True
 
 def setup_logging() -> None:
     """
@@ -23,10 +34,16 @@ def setup_logging() -> None:
     """
     app_settings = get_app_settings()
 
+    # StreamHandler 把 log 寫到 stream（預設 sys.stderr），console 應用最常用
+    handler: logging.Handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter(_LOG_FORMAT, _LOG_DATEFMT))
+    handler.addFilter(_RequestIdFilter())
+
     logging.basicConfig(
         level = app_settings.log_level,
-        format = _LOG_FORMAT,
-        datefmt = _LOG_DATEFMT,
+        handlers=[handler],
+        # format = _LOG_FORMAT,     # 用 handler 傳入
+        # datefmt = _LOG_DATEFMT,   # 用 handler 傳入
         # uvicorn 啟動時會先設置 root logger 的 handler，
         # force = True 讓 basicConfig 取代 uvicorn 的 root logger handler
         force = True

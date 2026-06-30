@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 
 from .api import api_router
+from .api.middlewares import RequestIdMiddleware
 from .core.config import get_app_settings
 from .core.logging import setup_logging
 
@@ -13,6 +14,8 @@ def create_app() -> FastAPI:
         version = app_settings.app_version,
         debug = app_settings.app_debug
     )
+
+    app.add_middleware(RequestIdMiddleware)
 
     app.include_router(api_router)
 
