@@ -5,12 +5,15 @@ from .base import BaseAppSettings
 from .local import LocalAppSettings
 from .dev import DevAppSettings
 from .prod import ProdAppSettings
+from .test import TestAppSettings
+
 from app.core.enums import AppEnv
 
 _ENV_MAP: dict[AppEnv, type[BaseAppSettings]] = {
     AppEnv.LOCAL: LocalAppSettings,
     AppEnv.DEVELOPMENT: DevAppSettings,
-    AppEnv.PRODUCTION: ProdAppSettings
+    AppEnv.PRODUCTION: ProdAppSettings,
+    AppEnv.TEST: TestAppSettings,
 }
 
 # 用 lru_cache 快取 get_app_settings 的值，

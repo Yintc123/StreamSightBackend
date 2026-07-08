@@ -7,6 +7,12 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
 
+from app.core.config import get_app_settings, BaseAppSettings
+from app.core.db import Base
+
+# 觸發 model import -> 註冊到 Base.metadata (autogenerate 才看得到)
+import app.models # noqa: F401  # trigger model registration for Alembic autogenerate
+
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
@@ -16,11 +22,15 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
+# 從 settings 讀 URL (覆蓋 alembic.ini 的空值)
+settings: BaseAppSettings = get_app_settings()
+config.set_main_option("sqlalchemy.url", settings.database_url)
+
 # add your model's MetaData object here
 # for 'autogenerate' support
 # from myapp import mymodel
 # target_metadata = mymodel.Base.metadata
-target_metadata = None
+target_metadata = Base.metadata
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:

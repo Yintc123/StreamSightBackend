@@ -20,3 +20,7 @@ class ErrorResponse(BaseModel):
         default=None,
         description="Detailed debug info (only present when app_debug=True)"
     )
+
+class HealthDbResponse(BaseModel):
+    db: str = Field(description="DB connectivity status")
+    result: int = Field(description="Test query result (should be 1)")

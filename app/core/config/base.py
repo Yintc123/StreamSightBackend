@@ -1,4 +1,6 @@
-from pydantic import Field, field_validator
+from urllib.parse import quote
+
+from pydantic import Field, field_validator, SecretStr, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.core.enums import AppEnv, LogLevel
@@ -20,6 +22,57 @@ class BaseAppSettings(BaseSettings):
     # logging
     log_level: LogLevel = Field(default=LogLevel.INFO, description="Root logger level")
 
+    # database - connection fields
+    db_dialect: str = Field(
+        default="postgresql+asyncpg",
+        description="SQLAlchemy dialect+driver (postgresql+asyncpg / sqlite+aiosqlite / mysql+aiomysql)"
+    )
+    db_host: str = Field(default="localhost", description="DB host (ignored for SQLite)")
+    db_port: int = Field(default=5432, ge=1, le=65535, description="DB port (ignored for SQLite)")
+    db_user: str = Field(default="postgres", description="DB user (ignored for SQLite)")
+    # SecretStr 可以讓密碼不顯示於 log 中，db_password 顯示為 SecretStr('**********')
+    db_password: SecretStr = Field(
+        default=SecretStr(""),
+        description="DB password (ignored for SQLite; use secret manager in prod)"
+    )
+    db_name: str = Field(default="app", description="DB name (or SQLite file path)")
+
+    # database - engine config
+    database_echo: bool = Field(
+        default=False,
+        description="Log all SQL statements (dev only)",
+    )
+    database_pool_size: int = Field(
+        default=5,
+        ge=1,       # greater than or equal
+        le=100,     # less than or equal
+        description="Connection pool size (ignored for SQLite)",
+    )
+    database_pool_recycle: int = Field(
+        default=3600,
+        description="Recycle connections after N seconds",
+    )
+
+    @computed_field
+    @property
+    def database_url(self) -> str:
+        """
+        Compose SQLAlchemy async URL from individual fields.
+
+        SQLite: {dialect}:///{path}
+        Others: {dialect}://{user}:{password}@{host}:{port}/{name}
+        """
+        if self.db_dialect.startswith("sqlite"):
+            return f"{self.db_dialect}:///{self.db_name}"
+        
+        # 密碼用 quote 做 URL-encode，防特殊字元 (@ : / # % 等) 破壞 URL 解析
+        # safe 預設為 "/"
+        password: str = quote(self.db_password.get_secret_value(), safe="")
+        return (
+            f"{self.db_dialect}://{self.db_user}:{password}"
+            f"@{self.db_host}:{self.db_port}/{self.db_name}"
+        )
+
     # app
     @field_validator("app_env", mode="before")
     @classmethod
@@ -31,4 +84,3 @@ class BaseAppSettings(BaseSettings):
     @classmethod
     def _normalize_log_level(cls, value: str) -> str:
         return value.upper() if isinstance(value, str) else value
-    

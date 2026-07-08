@@ -1,8 +1,18 @@
 from fastapi import APIRouter, Depends
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.engine import CursorResult
+
 from app.core.config import BaseAppSettings, get_app_settings
+from app.core.db import get_session
 from app.core.exceptions import NotFoundError, BusinessRuleError
 
-from .schemas import HealthResponse, TestErrorResponse, ErrorResponse
+from .schemas import (
+    HealthResponse,
+    TestErrorResponse,
+    ErrorResponse,
+    HealthDbResponse,
+)
 
 router: APIRouter = APIRouter()
 
@@ -38,3 +48,10 @@ def test_error(kind: str) -> TestErrorResponse:
     if kind == "unhandled":
         raise RuntimeError("Test unhandled error")
     return TestErrorResponse(status="no error")
+
+@router.get("/health/db")
+async def health_db(
+    db: AsyncSession = Depends(get_session)
+) -> HealthDbResponse:
+    result: CursorResult = await db.execute(text("SELECT 1"))
+    return HealthDbResponse(db="ok", result=result.scalar())

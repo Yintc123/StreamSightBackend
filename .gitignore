@@ -11,3 +11,7 @@ wheels/
 
 # .env
 .env
+
+# SQLite dev database
+*.db
+*.db-journal
