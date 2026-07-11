@@ -1,14 +1,15 @@
 import logging
 import traceback
+from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException
 
-from app.core.config import get_app_settings
+from app.core.config import BaseAppSettings, get_app_settings
 from app.core.context import request_id_ctx
-from .base import AppException
+from .base import AppException, SystemErrorCode
 
 # 讓 log 能印出模組名稱
 logger: logging.Logger = logging.getLogger(__name__)
@@ -17,11 +18,11 @@ def _build_response(
         status_code: int,
         error_code: str,
         message: str,
-        details: dict | None = None,
-        debug_info: dict | None = None
+        details: dict[str, Any] | None = None,
+        debug_info: dict[str, Any] | None = None
 ) -> JSONResponse:
     """建立 request_id 標準化的 JSON 格式的錯誤回應"""
-    content: dict = {
+    content: dict[str, Any] = {
         "error": error_code,
         "message": message,
         "request_id": request_id_ctx.get()
@@ -31,7 +32,7 @@ def _build_response(
         content["details"] = details
     if debug_info:
         content["debug_info"] = debug_info
-    
+
     return JSONResponse(status_code=status_code, content=content)
 
 async def app_exception_handler(request: Request, exc: AppException) -> JSONResponse:
@@ -54,7 +55,7 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
     """取代 FastAPI 預設的 HTTPException handler 並且使用標準化的 JSON 格式回應"""
     return _build_response(
         status_code=exc.status_code,
-        error_code="http_error",
+        error_code=SystemErrorCode.HTTP_ERROR,
         message=str(exc.detail)
     )
 
@@ -66,7 +67,7 @@ async def validation_exception_handler(
     """Pydantic/FastAPI 請求驗證錯誤 -> 標準化 JSON 格式"""
     return _build_response(
         status_code=422,
-        error_code="validation_error",
+        error_code=SystemErrorCode.VALIDATION_ERROR,
         message="Request validation failed",
         details={"errors": exc.errors()}
     )
@@ -75,8 +76,8 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
     """非預期錯誤使用並且記錄全部的 traceback"""
     logger.exception("Unhandled exception: %s", exc)
 
-    settings = get_app_settings()
-    debug_info: dict | None = None
+    settings: BaseAppSettings = get_app_settings()
+    debug_info: dict[str, Any] | None = None
     safe_message: str = "An unexpected error occurred"
     
     # debug=True 時回傳詳細資訊 (dev / local 看exception 觸發時的完整呼叫鏈(stacktrace))
@@ -90,14 +91,19 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
     
     return _build_response(
         status_code=500,
-        error_code="internal_error",
+        error_code=SystemErrorCode.INTERNAL_ERROR,
         message=safe_message,
         debug_info=debug_info
     )
 
 def setup_exception_handlers(app: FastAPI) -> None:
-    """FastAPI app 註冊所有 exception handlers"""
-    app.add_exception_handler(AppException, app_exception_handler)
-    app.add_exception_handler(RequestValidationError, validation_exception_handler)
-    app.add_exception_handler(HTTPException, http_exception_handler)
+    """FastAPI app 註冊所有 exception handlers.
+
+    FastAPI 的 `add_exception_handler` 型別要求 handler 第二參數為 `Exception`（最寬型別），
+    但刻意用更窄的型別（`AppException` / `RequestValidationError` / `HTTPException`）以獲得
+    handler 內部的型別支援。runtime 完全正確 — starlette 只會用對應的 exception 傳進去。
+    """
+    app.add_exception_handler(AppException, app_exception_handler)  # pyright: ignore[reportArgumentType]
+    app.add_exception_handler(RequestValidationError, validation_exception_handler)  # pyright: ignore[reportArgumentType]
+    app.add_exception_handler(HTTPException, http_exception_handler)  # pyright: ignore[reportArgumentType]
     app.add_exception_handler(Exception, unhandled_exception_handler)
