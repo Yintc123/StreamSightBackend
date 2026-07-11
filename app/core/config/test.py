@@ -9,7 +9,9 @@ class TestAppSettings(BaseAppSettings):
     log_level: LogLevel = LogLevel.WARNING
 
     # database (SQLite in-memory - 每次測試清乾淨)
+    # 需搭配 conftest.py 的 StaticPool 讓所有 session 共用同一 connection
     db_dialect: str = "sqlite+aiosqlite"
-    # ?cache=shared&uri=true 這是什麼意思？
-    db_name: str = ":memory:?cache=shared&uri=true"
+    db_name: str = ":memory:"
     database_echo: bool = False
+
+    # encryption_key: conftest.py 在 import 時設定 os.environ["ENCRYPTION_KEY"]

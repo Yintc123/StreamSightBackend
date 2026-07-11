@@ -15,3 +15,5 @@ class LocalAppSettings(BaseAppSettings):
     db_user: str = "postgres"
     db_name: str = "fastapi_template_local"
     database_echo: bool = True
+
+    # encryption_key: 從 .env 讀取（見 .env.example）

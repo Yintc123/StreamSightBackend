@@ -53,6 +53,20 @@ class BaseAppSettings(BaseSettings):
         description="Recycle connections after N seconds",
     )
 
+    # column-level encryption
+    encryption_key: SecretStr = Field(
+        default=SecretStr(""),
+        description="AES-256 key for column encryption (>=32 chars; NEVER change once data exists)",
+    )
+
+    @field_validator("encryption_key", mode="after")
+    @classmethod
+    def _validate_encryption_key(cls, value: SecretStr) -> SecretStr:
+        raw: str = value.get_secret_value()
+        if len(raw) < 32:
+            raise ValueError("encryption_key must be at least 32 characters")
+        return value
+
     @computed_field
     @property
     def database_url(self) -> str:
