@@ -1,4 +1,5 @@
 from collections.abc import AsyncGenerator
+from typing import Any
 
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -14,11 +15,11 @@ def _create_engine() -> AsyncEngine:
     settings: BaseAppSettings = get_app_settings()
 
     # SQLite 用 NullPool，不吃 pool_size/pool_recycle 參數
-    engine_kwargs: dict = {"echo": settings.database_echo}
+    engine_kwargs: dict[str, Any] = {"echo": settings.database_echo}
     if not settings.database_url.startswith("sqlite"):
         engine_kwargs["pool_size"] = settings.database_pool_size
         engine_kwargs["pool_recycle"] = settings.database_pool_recycle
-    
+
     return create_async_engine(settings.database_url, **engine_kwargs)
 
 engine: AsyncEngine = _create_engine()
