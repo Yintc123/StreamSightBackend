@@ -57,7 +57,8 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["B008"]   # 允許 test 用 Depends() 當預設值
+"tests/**" = ["B008"]      # 允許 test 用 Depends() 當預設值
+"app/api/**" = ["B008"]    # FastAPI Depends() 慣例，不是 bug
 
 [tool.ruff.format]
 quote-style = "double"
