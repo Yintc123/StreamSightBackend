@@ -20,8 +20,10 @@ dependencies = [
 dev = [
     "aiosqlite>=0.22.1",
     "httpx>=0.28.1",
+    "pyright>=1.1.411",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
+    "ruff>=0.15.21",
 ]
 
 [tool.pytest.ini_options]
@@ -33,3 +35,43 @@ addopts = [
 ]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+extend-exclude = [
+    "alembic/versions",   # 自動產生的 migration 檔
+]
+
+[tool.ruff.lint]
+select = [
+    "E",       # pycodestyle errors
+    "F",       # pyflakes（unused import 等）
+    "I",       # isort（import 排序）
+    "UP",      # pyupgrade（用新語法）
+    "B",       # flake8-bugbear（常見 bug 模式）
+    "SIM",     # flake8-simplify
+]
+ignore = [
+    "E501",    # line-too-long（讓 formatter 管，不當 error）
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["B008"]   # 允許 test 用 Depends() 當預設值
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.pyright]
+include = ["app", "tests"]
+exclude = [
+    "**/node_modules",  # Pylance 預設
+    "**/.*",            # Pylance 預設
+    "**/__pycache__",
+    ".venv",
+    "alembic/versions", # 自動產生
+]
+pythonVersion = "3.13"
+typeCheckingMode = "standard"
+reportMissingImports = "error"
+reportUnusedImport = "warning"
