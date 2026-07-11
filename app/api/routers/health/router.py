@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy import text
+from sqlalchemy.engine import Result
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.engine import CursorResult
 
 from app.core.config import BaseAppSettings, get_app_settings
 from app.core.db import get_session
@@ -53,5 +53,5 @@ def test_error(kind: str) -> TestErrorResponse:
 async def health_db(
     db: AsyncSession = Depends(get_session)
 ) -> HealthDbResponse:
-    result: CursorResult = await db.execute(text("SELECT 1"))
-    return HealthDbResponse(db="ok", result=result.scalar())
+    result: Result[tuple[int]] = await db.execute(text("SELECT 1"))
+    return HealthDbResponse(db="ok", result=result.scalar_one())
