@@ -28,12 +28,11 @@ class Base(DeclarativeBase):
             user_id: Mapped[int] = mapped_column(primary_key=True)
             role_id: Mapped[int] = mapped_column(primary_key=True)
     """
+
     __abstract__ = True  # Base 本身不對應 table
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

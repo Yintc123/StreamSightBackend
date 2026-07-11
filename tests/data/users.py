@@ -10,13 +10,12 @@ Add new users by appending to the list. Each row must have:
 
 from typing import Any
 
-
 USERS: list[dict[str, Any]] = [
-    {"_id": "yin",   "email": "yin_test@example.com", "name": "yin"},
-    {"_id": "bob",   "email": "bob@example.com",      "name": "bob"},
-    {"_id": "alice", "email": "alice@example.com",    "name": "Alice"},
-    {"_id": "a",     "email": "a@example.com",        "name": "A"},
-    {"_id": "b",     "email": "b@example.com",        "name": "B"},
+    {"_id": "yin", "email": "yin_test@example.com", "name": "yin"},
+    {"_id": "bob", "email": "bob@example.com", "name": "bob"},
+    {"_id": "alice", "email": "alice@example.com", "name": "Alice"},
+    {"_id": "a", "email": "a@example.com", "name": "A"},
+    {"_id": "b", "email": "b@example.com", "name": "B"},
 ]
 
 

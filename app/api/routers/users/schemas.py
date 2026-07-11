@@ -13,6 +13,7 @@ from app.dtos import UserBase
 
 class UserResponse(UserBase):
     """Response body for user endpoints."""
+
     # 讓 Pydantic 從 SQLAlchemy 物件建立
     model_config = ConfigDict(from_attributes=True)
 

@@ -1,3 +1,3 @@
-from app.app import create_app, FastAPI
+from app.app import FastAPI, create_app
 
 app: FastAPI = create_app()

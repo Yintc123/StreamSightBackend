@@ -5,7 +5,6 @@ from app.core.config import get_app_settings
 from app.core.db import Base
 from app.core.db.types import DeterministicEncryptedString
 
-
 # Load encryption key at module import time (Option A: init-time binding).
 # Column type instances are class-level, so the key is bound once per process.
 _ENCRYPTION_KEY: bytes = get_app_settings().encryption_key.get_secret_value().encode()

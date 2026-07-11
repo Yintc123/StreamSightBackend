@@ -16,6 +16,7 @@ _NOISY_LOGGERS: dict[str, LogLevel] = {
     # "urllib3": LogLevel.WARNING
 }
 
+
 # logging.Filter 是攔截器，掛在 handler 上時，在 formatter 處理 record 之前執行
 class _RequestIdFilter(logging.Filter):
     # 從 ContextVar 取得 request_id 並且注入到每筆 log
@@ -28,9 +29,7 @@ class _RequestIdFilter(logging.Filter):
 
 
 # 自動遮罩 log 內出現的 email（service 層已用 mask_email，這是防漏）
-_EMAIL_RE: re.Pattern[str] = re.compile(
-    r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
-)
+_EMAIL_RE: re.Pattern[str] = re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
 
 
 class _EmailMaskFilter(logging.Filter):
@@ -41,11 +40,11 @@ class _EmailMaskFilter(logging.Filter):
             record.msg = _EMAIL_RE.sub(lambda m: mask_email(m.group(0)), record.msg)
         if record.args:
             record.args = tuple(
-                _EMAIL_RE.sub(lambda m: mask_email(m.group(0)), a)
-                if isinstance(a, str) else a
+                _EMAIL_RE.sub(lambda m: mask_email(m.group(0)), a) if isinstance(a, str) else a
                 for a in record.args
             )
         return True
+
 
 def setup_logging() -> None:
     """
@@ -64,13 +63,13 @@ def setup_logging() -> None:
     handler.addFilter(_EmailMaskFilter())
 
     logging.basicConfig(
-        level = app_settings.log_level,
+        level=app_settings.log_level,
         handlers=[handler],
         # format = _LOG_FORMAT,     # 用 handler 傳入
         # datefmt = _LOG_DATEFMT,   # 用 handler 傳入
         # uvicorn 啟動時會先設置 root logger 的 handler，
         # force = True 讓 basicConfig 取代 uvicorn 的 root logger handler
-        force = True
+        force=True,
     )
 
     for name, level in _NOISY_LOGGERS.items():

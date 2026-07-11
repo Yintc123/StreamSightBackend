@@ -18,7 +18,6 @@ from cryptography.hazmat.primitives import padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from sqlalchemy.types import String, TypeDecorator
 
-
 # Fixed IV: acceptable for deterministic encryption on short strings (email).
 # All-zero IV is fine here since we WANT deterministic output; randomness
 # would defeat the purpose (breaks index / unique constraint).

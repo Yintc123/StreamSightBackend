@@ -5,6 +5,7 @@ from app.models.user import User
 
 from .base import BaseRepository
 
+
 class UserRepository(BaseRepository[User]):
     model: type[User] = User
 

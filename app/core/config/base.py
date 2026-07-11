@@ -1,16 +1,14 @@
 from urllib.parse import quote
 
-from pydantic import Field, field_validator, SecretStr, computed_field
+from pydantic import Field, SecretStr, computed_field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.core.enums import AppEnv, LogLevel
 
+
 class BaseAppSettings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file = ".env",
-        env_file_encoding = "utf-8",
-        case_sensitive = False,
-        extra = "ignore"
+        env_file=".env", env_file_encoding="utf-8", case_sensitive=False, extra="ignore"
     )
 
     # app
@@ -25,7 +23,7 @@ class BaseAppSettings(BaseSettings):
     # database - connection fields
     db_dialect: str = Field(
         default="postgresql+asyncpg",
-        description="SQLAlchemy dialect+driver (postgresql+asyncpg / sqlite+aiosqlite / mysql+aiomysql)"
+        description="SQLAlchemy dialect+driver (postgresql+asyncpg / sqlite+aiosqlite / mysql+aiomysql)",
     )
     db_host: str = Field(default="localhost", description="DB host (ignored for SQLite)")
     db_port: int = Field(default=5432, ge=1, le=65535, description="DB port (ignored for SQLite)")
@@ -33,7 +31,7 @@ class BaseAppSettings(BaseSettings):
     # SecretStr 可以讓密碼不顯示於 log 中，db_password 顯示為 SecretStr('**********')
     db_password: SecretStr = Field(
         default=SecretStr(""),
-        description="DB password (ignored for SQLite; use secret manager in prod)"
+        description="DB password (ignored for SQLite; use secret manager in prod)",
     )
     db_name: str = Field(default="app", description="DB name (or SQLite file path)")
 
@@ -44,8 +42,8 @@ class BaseAppSettings(BaseSettings):
     )
     database_pool_size: int = Field(
         default=5,
-        ge=1,       # greater than or equal
-        le=100,     # less than or equal
+        ge=1,  # greater than or equal
+        le=100,  # less than or equal
         description="Connection pool size (ignored for SQLite)",
     )
     database_pool_recycle: int = Field(
@@ -78,7 +76,7 @@ class BaseAppSettings(BaseSettings):
         """
         if self.db_dialect.startswith("sqlite"):
             return f"{self.db_dialect}:///{self.db_name}"
-        
+
         # 密碼用 quote 做 URL-encode，防特殊字元 (@ : / # % 等) 破壞 URL 解析
         # safe 預設為 "/"
         password: str = quote(self.db_password.get_secret_value(), safe="")

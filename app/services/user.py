@@ -1,14 +1,16 @@
-from typing import Any
 import logging
+from typing import Any
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import NotFoundError, ConflictError
+from app.core.exceptions import ConflictError, NotFoundError
 from app.core.security import mask_email
+from app.dtos import UserCreate, UserUpdate
 from app.models.user import User
 from app.repositories.user import UserRepository
-from app.dtos import UserCreate, UserUpdate
 
 logger: logging.Logger = logging.getLogger(__name__)
+
 
 class UserService:
     """
@@ -16,6 +18,7 @@ class UserService:
 
     Transaction Boundary: each public method commits (or rolls back on error).
     """
+
     def __init__(self, session: AsyncSession) -> None:
         self.session: AsyncSession = session
         self.repo: UserRepository = UserRepository(session)
@@ -35,8 +38,7 @@ class UserService:
         """Create a new user. Raises ConflictError if email is taken."""
         if await self.repo.email_exists(payload.email):
             raise ConflictError(
-                f"Email {mask_email(payload.email)} already registered",
-                details={"field": "email"}
+                f"Email {mask_email(payload.email)} already registered", details={"field": "email"}
             )
 
         user: User = User(email=payload.email, name=payload.name)
@@ -57,11 +59,13 @@ class UserService:
         updates: dict[str, Any] = payload.model_dump(exclude_unset=True)
 
         # 若改 email，先檢查唯一性
-        if "email" in updates and updates["email"] != user.email:
+        # 保留兩層：內層 await 是有副作用的 DB query，比外層 pure comparison 昂貴，
+        # 分開比合併成一個大 if 表達更清楚 short-circuit 意圖
+        if "email" in updates and updates["email"] != user.email:  # noqa: SIM102
             if await self.repo.email_exists(updates["email"]):
                 raise ConflictError(
                     f"Email {mask_email(updates['email'])} already registered",
-                    details={"field": "email"}
+                    details={"field": "email"},
                 )
 
         for key, value in updates.items():

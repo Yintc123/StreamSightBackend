@@ -19,5 +19,5 @@ __all__ = [
     "NotFoundError",
     "SystemErrorCode",
     "UnauthorizedError",
-    "setup_exception_handlers"
+    "setup_exception_handlers",
 ]

@@ -23,8 +23,8 @@ from app.core.security import mask_email
         ("", "***"),
         ("invalid", "***"),
         ("no-at-sign", "***"),
-        ("@example.com", "***"),      # 只有 domain
-        ("alice@", "***"),             # 只有 local
+        ("@example.com", "***"),  # 只有 domain
+        ("alice@", "***"),  # 只有 local
     ],
 )
 def test_mask_email(email: str, expected: str) -> None:

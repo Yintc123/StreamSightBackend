@@ -1,13 +1,13 @@
 import os
 from functools import lru_cache
 
+from app.core.enums import AppEnv
+
 from .base import BaseAppSettings
-from .local import LocalAppSettings
 from .dev import DevAppSettings
+from .local import LocalAppSettings
 from .prod import ProdAppSettings
 from .test import TestAppSettings
-
-from app.core.enums import AppEnv
 
 _ENV_MAP: dict[AppEnv, type[BaseAppSettings]] = {
     AppEnv.LOCAL: LocalAppSettings,
@@ -15,6 +15,7 @@ _ENV_MAP: dict[AppEnv, type[BaseAppSettings]] = {
     AppEnv.PRODUCTION: ProdAppSettings,
     AppEnv.TEST: TestAppSettings,
 }
+
 
 # 用 lru_cache 快取 get_app_settings 的值，
 # 避免每次讀取環境變數重新讀取 .env 檔
@@ -30,6 +31,7 @@ def get_app_settings() -> BaseAppSettings:
 
     settings_cls: type[BaseAppSettings] = _ENV_MAP.get(valid_env, LocalAppSettings)
     return settings_cls()
+
 
 # 對外只 export 這兩個物件，使用者不需要知道不同環境是否有分檔
 __all__ = ["BaseAppSettings", "get_app_settings"]

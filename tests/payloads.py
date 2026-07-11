@@ -32,7 +32,6 @@ from typing import Any
 
 from tests.data.users import INVALID_PAYLOADS, USERS
 
-
 _METADATA_PREFIX: str = "_"
 
 
@@ -41,9 +40,7 @@ def _strip_metadata(row: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in row.items() if not k.startswith(_METADATA_PREFIX)}
 
 
-def _find_by_id(
-    rows: list[dict[str, Any]], seed: str, **overrides: Any
-) -> dict[str, Any]:
+def _find_by_id(rows: list[dict[str, Any]], seed: str, **overrides: Any) -> dict[str, Any]:
     """Find a row by `_id`, strip metadata, deep-copy, apply overrides."""
     for row in rows:
         if row.get("_id") == seed:

@@ -1,14 +1,12 @@
-from typing import Generic, TypeVar
-
-from sqlalchemy import delete as sql_delete, select, Select, Delete
+from sqlalchemy import Delete, Select, select
+from sqlalchemy import delete as sql_delete
 from sqlalchemy.engine import CursorResult, Result
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import Base
 
-ModelT = TypeVar("ModelT", bound=Base)
 
-class BaseRepository(Generic[ModelT]):
+class BaseRepository[ModelT: Base]:
     """
     Generic async CRUD repository for SQLAlchemy models.
 
@@ -28,26 +26,23 @@ class BaseRepository(Generic[ModelT]):
     async def get(self, id: int) -> ModelT | None:
         """Fetch by primary key. Returns None if not found."""
         return await self.session.get(self.model, id)
-    
+
     async def list_all(self, offset: int = 0, limit: int = 100) -> list[ModelT]:
         """List rows ordered by primary key."""
         stmt: Select[tuple[ModelT]] = (
-            select(self.model)
-            .order_by(self.model.id)
-            .offset(offset)
-            .limit(limit)
+            select(self.model).order_by(self.model.id).offset(offset).limit(limit)
         )
 
         result: Result[tuple[ModelT]] = await self.session.execute(stmt)
         return list(result.scalars().all())
-    
+
     async def add(self, entity: ModelT) -> ModelT:
         """Add entity to session and flush to get generated fields (id, timestamps)."""
         self.session.add(entity)
         await self.session.flush()
         await self.session.refresh(entity)
         return entity
-    
+
     async def delete(self, entity: ModelT) -> None:
         """Delete an entity."""
         await self.session.delete(entity)

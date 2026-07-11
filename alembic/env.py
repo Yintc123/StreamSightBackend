@@ -5,13 +5,11 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from alembic import context
-
-from app.core.config import get_app_settings, BaseAppSettings
-from app.core.db import Base
-
 # 觸發 model import -> 註冊到 Base.metadata (autogenerate 才看得到)
-import app.models # noqa: F401  # trigger model registration for Alembic autogenerate
+import app.models  # noqa: F401  # trigger model registration for Alembic autogenerate
+from alembic import context
+from app.core.config import BaseAppSettings, get_app_settings
+from app.core.db import Base
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

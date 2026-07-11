@@ -1,5 +1,7 @@
-from .base import BaseAppSettings
 from app.core.enums import LogLevel
+
+from .base import BaseAppSettings
+
 
 class TestAppSettings(BaseAppSettings):
     # app

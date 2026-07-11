@@ -9,6 +9,7 @@ class SystemErrorCode(StrEnum):
     - VALIDATION_ERROR：Pydantic/FastAPI 請求驗證失敗
     - INTERNAL_ERROR：非預期的未捕獲 exception（也作為 AppException 預設值）
     """
+
     HTTP_ERROR = "http_error"
     VALIDATION_ERROR = "validation_error"
     INTERNAL_ERROR = "internal_error"
@@ -20,6 +21,7 @@ class AppException(Exception):
     全部業務層的 exceptions 都從這個 class 繼承，
     子類別設置 status_code 和 error_code 作為子類別的屬性
     """
+
     status_code: int = 500
     error_code: str = SystemErrorCode.INTERNAL_ERROR
 
@@ -32,30 +34,36 @@ class AppException(Exception):
         self.message: str = message
         self.details: dict[str, Any] = details or {}
 
+
 class NotFoundError(AppException):
     status_code: int = 404
     error_code: str = "not_found"
+
 
 class UnauthorizedError(AppException):
     status_code: int = 401
     error_code: str = "unauthorized"
 
+
 class ForbiddenError(AppException):
     status_code: int = 403
     error_code: str = "forbidden"
+
 
 class ConflictError(AppException):
     status_code: int = 409
     error_code: str = "conflict"
 
+
 class BadRequestError(AppException):
     status_code: int = 400
     error_code: str = "bad_request"
+
 
 class BusinessRuleError(AppException):
     """
     請求有效但違反商業邏輯
     """
+
     status_code: int = 422
     error_code: str = "business_rule_violation"
-    

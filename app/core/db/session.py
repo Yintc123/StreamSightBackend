@@ -8,7 +8,8 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-from app.core.config import get_app_settings, BaseAppSettings
+from app.core.config import BaseAppSettings, get_app_settings
+
 
 def _create_engine() -> AsyncEngine:
     """Create the async engine with setting-driven config."""
@@ -22,17 +23,19 @@ def _create_engine() -> AsyncEngine:
 
     return create_async_engine(settings.database_url, **engine_kwargs)
 
+
 engine: AsyncEngine = _create_engine()
 
 # async_sessionmaker 為 factory-like class 用小寫
 AsyncSessionLocal: async_sessionmaker[AsyncSession] = async_sessionmaker(
     engine,
     class_=AsyncSession,
-    expire_on_commit=False, # commit 後仍能存取 model attributes
-    autoflush=False,        # 明確控制 flush 時機，避免非預期 SQL
+    expire_on_commit=False,  # commit 後仍能存取 model attributes
+    autoflush=False,  # 明確控制 flush 時機，避免非預期 SQL
 )
 
-async def get_session() -> AsyncGenerator[AsyncSession, None]:
+
+async def get_session() -> AsyncGenerator[AsyncSession]:
     """
     FastAPI dependency: yield an AsyncSession, rollback on error.
 

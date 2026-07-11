@@ -14,6 +14,7 @@ from pydantic import BaseModel, EmailStr, Field
 
 class UserBase(BaseModel):
     """Fields shared across user input DTOs."""
+
     email: EmailStr = Field(description="User email address")
     name: str = Field(min_length=1, max_length=100, description="Display name")
 
@@ -24,6 +25,7 @@ class UserCreate(UserBase):
 
 class UserUpdate(BaseModel):
     """Payload for partial user update. All fields optional."""
+
     email: EmailStr | None = Field(default=None, description="New email")
     name: str | None = Field(default=None, min_length=1, max_length=100, description="New name")
     is_active: bool | None = Field(default=None, description="Enable/disable account")

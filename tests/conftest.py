@@ -21,20 +21,20 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.pool import StaticPool
 
-from app.dtos import UserCreate, UserUpdate
 from app.app import create_app
 from app.core.config import BaseAppSettings, get_app_settings
 from app.core.db import Base, get_session
+from app.dtos import UserCreate, UserUpdate
 from app.models.user import User
 from app.services import UserService
-
 from tests.payloads import user_payload
+
 
 # ────────────────────────────────────────────────
 # Session-scoped engine (只建立一次，整個 test session 共用)
 # ────────────────────────────────────────────────
 @pytest.fixture(scope="session")
-async def engine() -> AsyncGenerator[AsyncEngine, None]:
+async def engine() -> AsyncGenerator[AsyncEngine]:
     """Async engine for the test session. Creates all tables once.
 
     SQLite `:memory:` 每個 connection 是獨立 DB。用 StaticPool 讓所有
@@ -59,11 +59,12 @@ async def engine() -> AsyncGenerator[AsyncEngine, None]:
         await conn.run_sync(Base.metadata.drop_all)
     await engine.dispose()
 
+
 # ────────────────────────────────────────────────
 # Per-test session (每個 test 一個乾淨的 session，自動  rollback)
 # ────────────────────────────────────────────────
 @pytest.fixture
-async def db_session(engine: AsyncEngine) -> AsyncGenerator[AsyncSession, None]:
+async def db_session(engine: AsyncEngine) -> AsyncGenerator[AsyncSession]:
     """Per-test AsyncSession that rolls back to keep tests isolated."""
     connection: AsyncConnection = await engine.connect()
     transaction: AsyncTransaction = await connection.begin()
@@ -83,15 +84,16 @@ async def db_session(engine: AsyncEngine) -> AsyncGenerator[AsyncSession, None]:
         await transaction.rollback()
         await connection.close()
 
+
 # ────────────────────────────────────────────────
 # HTTP client with dependency override
 # ────────────────────────────────────────────────
 @pytest.fixture
-async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
+async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient]:
     """AsyncClient that shares the test's db_session via dependency_overrides."""
     app: FastAPI = create_app()
 
-    async def override_get_session() -> AsyncGenerator[AsyncSession, None]:
+    async def override_get_session() -> AsyncGenerator[AsyncSession]:
         yield db_session
 
     app.dependency_overrides[get_session] = override_get_session
@@ -102,6 +104,7 @@ async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
 
     app.dependency_overrides.clear()
 
+
 # ────────────────────────────────────────────────
 # Pre-populated user fixtures (rollback per test 保證隔離)
 # ────────────────────────────────────────────────
@@ -111,23 +114,28 @@ async def alice(db_session: AsyncSession) -> User:
     service: UserService = UserService(db_session)
     return await service.create(UserCreate(**user_payload("alice")))
 
+
 @pytest.fixture
 async def bob(db_session: AsyncSession) -> User:
     """Pre-created 'Bob' user (from tests/data/users.py)."""
     service: UserService = UserService(db_session)
     return await service.create(UserCreate(**user_payload("bob")))
 
+
 @pytest.fixture
 async def sample_users(db_session: AsyncSession) -> list[User]:
     """Pre-created 3 users with unique auto-generated emails."""
     service: UserService = UserService(db_session)
     return [
-        await service.create(UserCreate(
-            email=f"sample{i}@example.com",
-            name=f"Sample {i}",
-        ))
+        await service.create(
+            UserCreate(
+                email=f"sample{i}@example.com",
+                name=f"Sample {i}",
+            )
+        )
         for i in range(3)
     ]
+
 
 @pytest.fixture
 async def inactive_user(db_session: AsyncSession, alice: User) -> User:

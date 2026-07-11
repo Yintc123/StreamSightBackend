@@ -1,6 +1,7 @@
-from contextlib import asynccontextmanager
-from fastapi import FastAPI
 from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
 
 from .api import api_router
 from .api.middlewares import RequestIdMiddleware
@@ -9,9 +10,10 @@ from .core.db import engine
 from .core.exceptions import setup_exception_handlers
 from .core.logging import setup_logging
 
+
 # asynccontextmanager: 在 async 環境下,安全地管理「需要 setup + teardown」的資源,而且它的進入 / 離開動作本身可以 await。
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     """
     App lifespan: startup / shutdown hooks.
     startup 執行一次 (yield 之前)，shutdown 執行一次 (yield 之後)
@@ -24,14 +26,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # shutdown: 關掉所有 DB connection
     await engine.dispose()
 
+
 def create_app() -> FastAPI:
     setup_logging()
     app_settings: BaseAppSettings = get_app_settings()
 
     app: FastAPI = FastAPI(
-        title = app_settings.app_name,
-        version = app_settings.app_version,
-        debug = app_settings.app_debug,
+        title=app_settings.app_name,
+        version=app_settings.app_version,
+        debug=app_settings.app_debug,
         lifespan=lifespan,
     )
 
