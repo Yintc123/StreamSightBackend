@@ -40,7 +40,7 @@ root                              ← setup_logging() 設定這裡
 | 檔案 | `__name__` |
 |------|-----------|
 | `app/core/exceptions/handlers.py` | `app.core.exceptions.handlers` |
-| `app/api/routers/health/health.py` | `app.api.routers.health.health` |
+| `app/api/routers/health/router.py` | `app.api.routers.health.router` |
 
 子節點沒有自己的 handler / level 時,會**繼承**父節點(最終到 root)的設定。
 
