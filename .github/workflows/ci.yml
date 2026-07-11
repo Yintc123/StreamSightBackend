@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  lint-and-typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      # actions/checkout@v4 為 GitHub 官方發布的 action：把當前 repo 的 code 拉到 workflow 的執行環境。
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      
+      - name: set up Python 3.13
+        run: uv python install 3.13
+      
+      - name: Install dependencies
+        run: uv sync --dev
+
+      - name: Lint (ruff check)
+        run: uv run ruff check .
+      
+      - name: Format check (ruff format)
+        run: uv run ruff format --check .
+
+      - name: Type check (pyright)
+        run: uv run pyright
+      
+      - name: Run tests
+        run: uv run pytest
+        env:
+          APP_ENV: test
+          ENCRYPTION_KEY: test-encryption-key-32-chars-min-length
