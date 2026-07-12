@@ -9,6 +9,7 @@ from .core.config import BaseAppSettings, get_app_settings
 from .core.db import engine
 from .core.exceptions import setup_exception_handlers
 from .core.logging import setup_logging
+from .core.redis import close_redis
 
 
 # asynccontextmanager: 在 async 環境下,安全地管理「需要 setup + teardown」的資源,而且它的進入 / 離開動作本身可以 await。
@@ -23,8 +24,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     """
     # startup: 目前無程式碼需要執行 (engine 已在 import 時建立)
     yield
-    # shutdown: 關掉所有 DB connection
+    # shutdown: 關掉所有 DB / Redis connection
     await engine.dispose()
+    await close_redis()
 
 
 def create_app() -> FastAPI:
