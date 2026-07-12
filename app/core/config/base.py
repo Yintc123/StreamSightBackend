@@ -1,6 +1,6 @@
 from urllib.parse import quote
 
-from pydantic import Field, SecretStr, computed_field, field_validator
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.core.enums import AppEnv, LogLevel
@@ -57,15 +57,29 @@ class BaseAppSettings(BaseSettings):
         description="AES-256 key for column encryption (>=32 chars; NEVER change once data exists)",
     )
 
-    @field_validator("encryption_key", mode="after")
-    @classmethod
-    def _validate_encryption_key(cls, value: SecretStr) -> SecretStr:
-        raw: str = value.get_secret_value()
-        if len(raw) < 32:
-            raise ValueError("encryption_key must be at least 32 characters")
-        return value
+    # redis - connection fields
+    redis_host: str = Field(default="localhost", description="Redis host")
+    redis_port: int = Field(
+        default=6379,
+        ge=1,
+        le=65535,
+        description="Redis port",
+    )
+    redis_username: str = Field(
+        default="", description="Redis username (Redis 6+ ACL only; leave empty for legacy auth)"
+    )
+    redis_password: SecretStr = Field(
+        default=SecretStr(""),
+        description="Redis password (empty for no auth; use secret manager in prod)",
+    )
+    redis_db: int = Field(default=0, ge=0, le=15, description="Redis logical DB number (0-15)")
 
-    @computed_field
+    # redis - client config
+    redis_pool_max_connections: int = Field(
+        default=20, ge=1, le=1000, description="Max connections in the Redis client pool"
+    )
+
+    # @computed_field
     @property
     def database_url(self) -> str:
         """
@@ -85,6 +99,28 @@ class BaseAppSettings(BaseSettings):
             f"@{self.db_host}:{self.db_port}/{self.db_name}"
         )
 
+    # @computed_field
+    @property
+    def redis_url(self) -> str:
+        """
+        Compose Redis URL from individual fields.
+
+        Formats:
+            no auth:                redis://host:port/db
+            password only:          redis://:password@host:port/db
+            ACL (user + password):  redis://user:password@host:port/db
+        """
+        password_raw: str = self.redis_password.get_secret_value()
+
+        if not password_raw:
+            return f"redis://{self.redis_host}:{self.redis_port}/{self.redis_db}"
+
+        # 密碼 URL-encode 防特殊字元
+        password: str = quote(password_raw, safe="")
+        # username 有值就 ACL 形式，否則 legacy 的形式 (開頭 `:password@`)
+        auth: str = f"{self.redis_username}:{password}" if self.redis_username else f":{password}"
+        return f"redis://{auth}@{self.redis_host}:{self.redis_port}/{self.redis_db}"
+
     # app
     @field_validator("app_env", mode="before")
     @classmethod
@@ -96,3 +132,11 @@ class BaseAppSettings(BaseSettings):
     @classmethod
     def _normalize_log_level(cls, value: str) -> str:
         return value.upper() if isinstance(value, str) else value
+
+    @field_validator("encryption_key", mode="after")
+    @classmethod
+    def _validate_encryption_key(cls, value: SecretStr) -> SecretStr:
+        raw: str = value.get_secret_value()
+        if len(raw) < 32:
+            raise ValueError("encryption_key must be at least 32 characters")
+        return value
