@@ -1,4 +1,3 @@
-from collections.abc import AsyncGenerator
 from typing import Any
 
 from sqlalchemy.ext.asyncio import (
@@ -33,23 +32,3 @@ AsyncSessionLocal: async_sessionmaker[AsyncSession] = async_sessionmaker(
     expire_on_commit=False,  # commit 後仍能存取 model attributes
     autoflush=False,  # 明確控制 flush 時機，避免非預期 SQL
 )
-
-
-async def get_session() -> AsyncGenerator[AsyncSession]:
-    """
-    FastAPI dependency: yield an AsyncSession, rollback on error.
-
-    使用方式：
-        @router.get("/users")
-        async def list_users(db: AsyncSession = Depends(get_session)):
-            result = await db.execute(select(User))
-            return result.scalars().all()
-    """
-    # 建立 session (lazy — 首次執行 SQL 時才從 pool 借 connection)
-    async with AsyncSessionLocal() as session:
-        try:
-            # 將 session 交給 endpoint 使用
-            yield session
-        except Exception:
-            await session.rollback()
-            raise
