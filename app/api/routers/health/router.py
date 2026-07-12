@@ -1,29 +1,31 @@
+import redis.asyncio as redis
 from fastapi import APIRouter, Depends
 from sqlalchemy import text
 from sqlalchemy.engine import Result
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.dependencies import get_redis, get_session
 from app.core.config import BaseAppSettings, get_app_settings
-from app.core.db import get_session
 from app.core.exceptions import BusinessRuleError, NotFoundError
 
 from .schemas import (
     ErrorResponse,
     HealthDbResponse,
+    HealthRedisResponse,
     HealthResponse,
     TestErrorResponse,
 )
 
-router: APIRouter = APIRouter()
+router: APIRouter = APIRouter(prefix="/health", tags=["health"])
 
 
-@router.get("/health")
+@router.get("")
 def health(settings: BaseAppSettings = Depends(get_app_settings)) -> HealthResponse:
     return HealthResponse(message="ok", app_version=settings.app_version)
 
 
 @router.get(
-    "/health/test-error/{kind}",
+    "/test-error/{kind}",
     response_model=TestErrorResponse,
     responses={
         404: {"model": ErrorResponse, "description": "Resource not found"},
@@ -47,7 +49,19 @@ def test_error(kind: str) -> TestErrorResponse:
     return TestErrorResponse(status="no error")
 
 
-@router.get("/health/db")
+@router.get("/db")
 async def health_db(db: AsyncSession = Depends(get_session)) -> HealthDbResponse:
     result: Result[tuple[int]] = await db.execute(text("SELECT 1"))
     return HealthDbResponse(db="ok", result=result.scalar_one())
+
+
+@router.get("/redis")
+async def health_redis(redis: redis.Redis = Depends(get_redis)) -> HealthRedisResponse:
+    """
+    Return Redis connectivity by executing PING.
+
+    - Redis 可用：回 200，ping = True
+    - Redis 不可用：ConnectionError -> unhandled_exception_handler -> 500
+    """
+    pong: bool = await redis.ping()
+    return HealthRedisResponse(redis="ok", ping=pong)

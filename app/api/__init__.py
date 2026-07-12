@@ -1,7 +1,6 @@
 from fastapi import APIRouter
 
-from .routers import users_router
-from .routers.health import router as health_router
+from .routers import health_router, users_router
 
 # 對外的總 router
 api_router: APIRouter = APIRouter()
