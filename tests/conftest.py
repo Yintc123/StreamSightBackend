@@ -8,7 +8,9 @@ os.environ["ENCRYPTION_KEY"] = "test-encryption-key-32-chars-min-length"
 from collections.abc import AsyncGenerator
 from typing import Any
 
+import fakeredis.aioredis
 import pytest
+import redis.asyncio as redis
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import (
@@ -21,9 +23,11 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.pool import StaticPool
 
+from app.api.dependencies import get_redis, get_session
 from app.app import create_app
 from app.core.config import BaseAppSettings, get_app_settings
-from app.core.db import Base, get_session
+from app.core.db import Base
+from app.core.redis import RedisCache
 from app.dtos import UserCreate, UserUpdate
 from app.models.user import User
 from app.services import UserService
@@ -37,8 +41,8 @@ from tests.payloads import user_payload
 async def engine() -> AsyncGenerator[AsyncEngine]:
     """Async engine for the test session. Creates all tables once.
 
-    SQLite `:memory:` 每個 connection 是獨立 DB。用 StaticPool 讓所有
-    session 共用同一 connection，才能看到彼此的資料。
+    SQLite `:memory:` 每個 connection 是獨立 DB。用 StaticPool 讓整個
+    session (整個 pytest 共用 engine) 共用同一 connection，才能看到彼此的資料。
     """
     settings: BaseAppSettings = get_app_settings()
 
@@ -89,14 +93,21 @@ async def db_session(engine: AsyncEngine) -> AsyncGenerator[AsyncSession]:
 # HTTP client with dependency override
 # ────────────────────────────────────────────────
 @pytest.fixture
-async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient]:
-    """AsyncClient that shares the test's db_session via dependency_overrides."""
+async def client(
+    db_session: AsyncSession,
+    fake_redis: redis.Redis,
+) -> AsyncGenerator[AsyncClient]:
+    """AsyncClient that shares the test's db_session + fake_redis via dependency_overrides."""
     app: FastAPI = create_app()
 
     async def override_get_session() -> AsyncGenerator[AsyncSession]:
         yield db_session
 
+    def override_get_redis() -> redis.Redis:
+        return fake_redis
+
     app.dependency_overrides[get_session] = override_get_session
+    app.dependency_overrides[get_redis] = override_get_redis
 
     transport: ASGITransport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
@@ -142,3 +153,27 @@ async def inactive_user(db_session: AsyncSession, alice: User) -> User:
     """Alice, but deactivated (is_active=False)."""
     service: UserService = UserService(db_session)
     return await service.update(alice.id, UserUpdate(is_active=False))
+
+
+# ────────────────────────────────────────────────
+# Fake Redis fixtures（純 Python in-memory、每 test 乾淨）
+# ────────────────────────────────────────────────
+@pytest.fixture(scope="function")
+async def fake_redis() -> AsyncGenerator[redis.Redis]:
+    """
+    Fake Redis client using fakeredis.aioredis. Isolated per test.
+    function scope：每個 test 後都會執行 await client.aclose()，每個 test 完全隔離。
+
+    fakeredis 建 instance 成本極低（純 in-memory dict，僅需要幾 microseconds），每一個 test 建一次無幾乎成本
+    """
+    client: redis.Redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    try:
+        yield client
+    finally:
+        await client.aclose()
+
+
+@pytest.fixture
+async def cache(fake_redis: redis.Redis) -> RedisCache:
+    """RedisCache backed by the per-test fake_redis client."""
+    return RedisCache(fake_redis)
