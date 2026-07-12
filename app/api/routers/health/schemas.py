@@ -28,3 +28,8 @@ class ErrorResponse(BaseModel):
 class HealthDbResponse(BaseModel):
     db: str = Field(description="DB connectivity status")
     result: int = Field(description="Test query result (should be 1)")
+
+
+class HealthRedisResponse(BaseModel):
+    redis: str = Field(description="Redis connectivity status")
+    ping: bool = Field(description="Result of Redis PING (True = PONG)")
