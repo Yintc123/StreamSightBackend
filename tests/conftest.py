@@ -4,6 +4,7 @@ import os
 os.environ["APP_ENV"] = "test"
 # Test 用 key（僅測試用，不用於任何真實資料）
 os.environ["ENCRYPTION_KEY"] = "test-encryption-key-32-chars-min-length"
+os.environ["JWT_SECRET_KEY"] = "test-jwt-secret-key-32-chars-min-length-for-tests"
 
 from collections.abc import AsyncGenerator
 from typing import Any
@@ -52,6 +53,17 @@ async def engine() -> AsyncGenerator[AsyncEngine]:
         engine_kwargs["connect_args"] = {"check_same_thread": False}
 
     engine: AsyncEngine = create_async_engine(settings.database_url, **engine_kwargs)
+
+    # SQLite 預設關閉 FK enforcement、開起來讓 CASCADE / UniqueConstraint
+    # 真的執行(和 Postgres 行為對齊、才測得到 real behavior)
+    if settings.database_url.startswith("sqlite"):
+        from sqlalchemy import event
+
+        @event.listens_for(engine.sync_engine, "connect")
+        def _enable_sqlite_fk(dbapi_connection: Any, _record: Any) -> None:  # noqa: ANN401
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.close()
 
     async with engine.begin() as conn:
         # 建立所有 SQLAlchemy 定義的 tables
