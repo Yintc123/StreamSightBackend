@@ -11,7 +11,7 @@ from tests.payloads import invalid_payload, user_payload
 
 async def test_create_user_return_201(client: AsyncClient) -> None:
     payload: dict[str, Any] = user_payload("yin")
-    response: Response = await client.post("/api/v1/users", json=payload)
+    response: Response = await client.post("/users", json=payload)
 
     assert response.status_code == status.HTTP_201_CREATED
     data: dict[str, Any] = response.json()
@@ -24,10 +24,10 @@ async def test_create_user_return_201(client: AsyncClient) -> None:
 
 async def test_get_user_return_200(client: AsyncClient) -> None:
     payload: dict[str, Any] = user_payload("yin")
-    create_resp: Response = await client.post("/api/v1/users", json=payload)
+    create_resp: Response = await client.post("/users", json=payload)
     user_id: int = create_resp.json()["id"]
 
-    response: Response = await client.get(f"/api/v1/users/{user_id}")
+    response: Response = await client.get(f"/users/{user_id}")
 
     assert response.status_code == status.HTTP_200_OK
     data: dict[str, Any] = response.json()
@@ -35,7 +35,7 @@ async def test_get_user_return_200(client: AsyncClient) -> None:
 
 
 async def test_get_nonexistent_returns_404(client: AsyncClient) -> None:
-    response: Response = await client.get("/api/v1/users/99999")
+    response: Response = await client.get("/users/99999")
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
     data: dict[str, Any] = response.json()
@@ -45,11 +45,11 @@ async def test_get_nonexistent_returns_404(client: AsyncClient) -> None:
 
 
 async def test_create_duplicate_email_returns_409(client: AsyncClient) -> None:
-    await client.post("/api/v1/users", json=user_payload("yin"))
+    await client.post("/users", json=user_payload("yin"))
 
     # 同 email 但改 name → 觸發 email unique 衝突
     duplicate: dict[str, Any] = user_payload("yin", name="yin2")
-    response: Response = await client.post("/api/v1/users", json=duplicate)
+    response: Response = await client.post("/users", json=duplicate)
 
     assert response.status_code == status.HTTP_409_CONFLICT
     data: dict[str, Any] = response.json()
@@ -59,7 +59,7 @@ async def test_create_duplicate_email_returns_409(client: AsyncClient) -> None:
 
 async def test_create_invalid_email_returns_422(client: AsyncClient) -> None:
     payload: dict[str, Any] = invalid_payload("invalid_email")
-    response: Response = await client.post("/api/v1/users", json=payload)
+    response: Response = await client.post("/users", json=payload)
 
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
     data: dict[str, Any] = response.json()
@@ -69,11 +69,11 @@ async def test_create_invalid_email_returns_422(client: AsyncClient) -> None:
 
 async def test_patch_updates_fields(client: AsyncClient) -> None:
     payload: dict[str, Any] = user_payload("yin")
-    create_resp: Response = await client.post("/api/v1/users", json=payload)
+    create_resp: Response = await client.post("/users", json=payload)
     user_id: int = create_resp.json()["id"]
 
     response: Response = await client.patch(
-        f"/api/v1/users/{user_id}",
+        f"/users/{user_id}",
         json={"name": "yin renamed"},
     )
 
@@ -86,11 +86,11 @@ async def test_patch_updates_fields(client: AsyncClient) -> None:
 async def test_patch_deactivate_user(client: AsyncClient) -> None:
     """PATCH is_active=false should deactivate the account."""
     payload: dict[str, Any] = user_payload("yin")
-    create_resp: Response = await client.post("/api/v1/users", json=payload)
+    create_resp: Response = await client.post("/users", json=payload)
     user_id: int = create_resp.json()["id"]
 
     response: Response = await client.patch(
-        f"/api/v1/users/{user_id}",
+        f"/users/{user_id}",
         json={"is_active": False},
     )
 
@@ -101,16 +101,16 @@ async def test_patch_deactivate_user(client: AsyncClient) -> None:
 
 async def test_delete_returns_204(client: AsyncClient) -> None:
     payload: dict[str, Any] = user_payload("yin")
-    create_resp: Response = await client.post("/api/v1/users", json=payload)
+    create_resp: Response = await client.post("/users", json=payload)
     user_id: int = create_resp.json()["id"]
 
-    response: Response = await client.delete(f"/api/v1/users/{user_id}")
+    response: Response = await client.delete(f"/users/{user_id}")
 
     assert response.status_code == status.HTTP_204_NO_CONTENT
     assert response.content == b""
 
     # 再讀取應該要是 404
-    get_resp: Response = await client.get(f"/api/v1/users/{user_id}")
+    get_resp: Response = await client.get(f"/users/{user_id}")
     assert get_resp.status_code == status.HTTP_404_NOT_FOUND
 
 
@@ -119,11 +119,10 @@ async def test_request_id_propagates(client: AsyncClient) -> None:
     request_id: str = "test-req-abc"
 
     response: Response = await client.get(
-        "/api/v1/users/99999",
+        "/users/99999",
         headers={"X-Request-ID": request_id},
     )
 
-    # 為什麼回應的 x-request-id 是小寫
     assert response.headers["x-request-id"] == request_id
     data: dict[str, Any] = response.json()
     assert data["request_id"] == request_id
@@ -131,7 +130,7 @@ async def test_request_id_propagates(client: AsyncClient) -> None:
 
 async def test_request_id_auto_generated(client: AsyncClient) -> None:
     """Without X-Request-ID, one should be auto-generated as UUID4."""
-    response: Response = await client.get("/api/v1/users/99999")
+    response: Response = await client.get("/users/99999")
 
     request_id: str | None = response.headers.get("x-request-id")
     assert request_id is not None
@@ -140,8 +139,28 @@ async def test_request_id_auto_generated(client: AsyncClient) -> None:
 
 
 async def test_list_users(client: AsyncClient, sample_users: list[User]) -> None:
-    response: Response = await client.get("/api/v1/users")
+    response: Response = await client.get("/users")
 
     assert response.status_code == status.HTTP_200_OK
     users: list[dict[str, Any]] = response.json()
     assert len(users) == len(sample_users)
+
+
+async def test_users_me_without_token_returns_401(client: AsyncClient) -> None:
+    """沒帶 Authorization header → 401 (OAuth2PasswordBearer 自動拒絕)。"""
+    response: Response = await client.get("/users/me")
+
+    assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+
+async def test_users_me_with_invalid_token_returns_401(client: AsyncClient) -> None:
+    """亂 token → 401、走我們的 UnauthorizedError shape。"""
+    response: Response = await client.get(
+        "/users/me",
+        headers={"Authorization": "Bearer not.a.real.token"},
+    )
+
+    assert response.status_code == status.HTTP_401_UNAUTHORIZED
+    data: dict[str, Any] = response.json()
+    assert data["error"] == "unauthorized"
+    assert data["message"] == "Invalid token"

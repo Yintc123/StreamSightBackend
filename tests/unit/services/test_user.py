@@ -22,10 +22,27 @@ async def test_create_user(db_session: AsyncSession) -> None:
     assert user.created_at is not None
 
 
+async def test_user_can_be_created_without_email(db_session: AsyncSession) -> None:
+    """OAuth 用戶場景:某些 provider (如 Apple sign in) 可能不提供 email。
+
+    UserService.create() 走 UserCreate DTO 一定要 email、但底層 User model
+    允許 email=None (為未來 OAuth flow 直接建 User 準備)。
+    """
+    user: User = User(email=None, name="OAuth User")
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+
+    assert user.id is not None
+    assert user.email is None
+    assert user.name == "OAuth User"
+
+
 async def test_create_duplicate_email_raises_conflict(
     db_session: AsyncSession, alice: User
 ) -> None:
     service: UserService = UserService(db_session)
+    assert alice.email is not None
     duplicate: UserCreate = UserCreate(email=alice.email, name="duplicate")
 
     with pytest.raises(ConflictError) as exc_info:
@@ -46,6 +63,7 @@ async def test_get_noneexistent_raises_not_found(db_session: AsyncSession) -> No
 
 async def test_update_only_provided_fields(db_session: AsyncSession, alice: User) -> None:
     service: UserService = UserService(db_session)
+    assert alice.email is not None
     original_email: str = alice.email
 
     updated: User = await service.update(alice.id, UserUpdate(name="alice renamed"))
