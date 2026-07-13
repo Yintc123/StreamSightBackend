@@ -57,6 +57,23 @@ class BaseAppSettings(BaseSettings):
         description="AES-256 key for column encryption (>=32 chars; NEVER change once data exists)",
     )
 
+    # jwt
+    jwt_secret_key: SecretStr = Field(
+        default=SecretStr(""),
+        description="JWT signing secret (>=32 chars; NEVER expose; rotate carefully)",
+    )
+    jwt_algorithm: str = Field(
+        default="HS256",
+        description="JWT signing algorithm (HS256 for symmetric, RS256 for asymmetric)",
+    )
+    # 這個專案對時間參數的設置單位統一用“秒”
+    jwt_access_token_expire_seconds: int = Field(
+        default=1800,
+        ge=1,
+        le=86400,  # 24 小時
+        description="Access token expiry in minutes (default 30, max 24h)",
+    )
+
     # redis - connection fields
     redis_host: str = Field(default="localhost", description="Redis host")
     redis_port: int = Field(
@@ -139,4 +156,12 @@ class BaseAppSettings(BaseSettings):
         raw: str = value.get_secret_value()
         if len(raw) < 32:
             raise ValueError("encryption_key must be at least 32 characters")
+        return value
+
+    @field_validator("jwt_secret_key", mode="after")
+    @classmethod
+    def _validate_jwt_secret(cls, value: SecretStr) -> SecretStr:
+        raw: str = value.get_secret_value()
+        if len(raw) < 32:
+            raise ValueError("jwt_secret_key must be at least 32 characters")
         return value
