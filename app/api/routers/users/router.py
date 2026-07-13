@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, status
 
-from app.api.dependencies import get_user_service
+from app.api.dependencies import get_current_user, get_user_service
 from app.dtos import UserCreate, UserUpdate
 from app.models.user import User
 from app.services import UserService
@@ -28,6 +28,19 @@ async def list_users(service: UserService = Depends(get_user_service)) -> list[U
     users: list[User] = await service.list_all()
     # response JSON array
     return [UserResponse.model_validate(u) for u in users]
+
+
+# FastAPI 匹配有順序性，要放在 /{user_id} 前，不然會匹配成 user_id="me"；Flask 則不會，Flask 優先匹配固定路由再匹配動態路由
+@router.get(
+    "/me",
+    response_model=UserResponse,
+    summary="Get current authenticated user",
+)
+async def get_me(
+    current_user: User = Depends(get_current_user),
+) -> UserResponse:
+    """Return the current authenticated user from the Bearer token."""
+    return UserResponse.model_validate(current_user)
 
 
 @router.get(
