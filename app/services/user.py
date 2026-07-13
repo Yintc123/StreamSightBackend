@@ -35,17 +35,22 @@ class UserService:
         return await self.repo.list_all(offset=offset, limit=limit)
 
     async def create(self, payload: UserCreate) -> User:
-        """Create a new user. Raises ConflictError if email is taken."""
+        """Create a new user. Raises ConflictError if email is taken.
+
+        認證 credential (password hash、OAuth sub) 存在 Identity 表、由 AuthService
+        統一管理。此處只負責 User 這個實體。
+        """
         if await self.repo.email_exists(payload.email):
             raise ConflictError(
-                f"Email {mask_email(payload.email)} already registered", details={"field": "email"}
+                f"Email {mask_email(payload.email or '')} already registered",
+                details={"field": "email"},
             )
 
         user: User = User(email=payload.email, name=payload.name)
         try:
             user = await self.repo.add(user)
             await self.session.commit()
-            logger.info("Created user id=%s email=%s", user.id, mask_email(user.email))
+            logger.info("Created user id=%s email=%s", user.id, mask_email(user.email or ""))
             return user
         except Exception:
             await self.session.rollback()
@@ -87,7 +92,7 @@ class UserService:
         try:
             await self.repo.delete(user)
             await self.session.commit()
-            logger.info("Deleted user id=%s email=%s", user_id, mask_email(user.email))
+            logger.info("Deleted user id=%s email=%s", user_id, mask_email(user.email or ""))
         except Exception:
             await self.session.rollback()
             raise
