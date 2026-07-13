@@ -38,6 +38,11 @@ addopts = [
     "--tb=short",
 ]
 testpaths = ["tests"]
+filterwarnings = [
+    # SQLAlchemy 已知 quirk：constraint violation 後 fixture rollback 觸發
+    # 不影響 test 正確性、抑制掉讓輸出乾淨
+    "ignore:transaction already deassociated from connection:sqlalchemy.exc.SAWarning",
+]
 asyncio_mode = "auto"
 
 [tool.ruff]
