@@ -113,13 +113,18 @@ def downgrade() -> None:
         ),
     )
 
-    # 從 identities 搬 password 回 users
+    # 從 identities 搬 password 回 users。
+    # ⚠️ 用「相關子查詢」而非 PostgreSQL 專屬的 UPDATE..FROM（MariaDB 會報 1064 語法錯），
+    # 與 b2c3d4e5f6a7 回填慣例一致、三方言（MariaDB / PostgreSQL / SQLite）皆可攜。
+    # COALESCE 回退到現值（server_default ''）以維持 NOT NULL：無 password identity 的 user 保持 ''。
     op.execute(
         """
-        UPDATE users u
-        SET password_hash = i.credential
-        FROM identities i
-        WHERE i.user_id = u.id AND i.provider = 'password'
+        UPDATE users
+        SET password_hash = COALESCE(
+            (SELECT i.credential FROM identities i
+             WHERE i.user_id = users.id AND i.provider = 'password'),
+            password_hash
+        )
         """
     )
 
@@ -131,7 +136,7 @@ def downgrade() -> None:
         nullable=False,
     )
 
-    # drop identities
-    op.drop_index("ix_identities_provider", table_name="identities")
-    op.drop_index("ix_identities_user_id", table_name="identities")
+    # drop identities：drop_table 會一併移除自身 index 與 FK；不先 drop_index。
+    # ⚠️ MariaDB/InnoDB 下 ix_identities_user_id 是 user_id FK 的 backing index，
+    # 先 drop_index 會報 (1553, "... needed in a foreign key constraint")。
     op.drop_table("identities")
