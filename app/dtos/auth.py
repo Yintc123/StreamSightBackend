@@ -32,16 +32,24 @@ class LoginRequest(BaseModel):
     password: str = Field(description="Plain password")
 
 
+class RefreshRequest(BaseModel):
+    """Payload for POST /auth/refresh and POST /auth/logout."""
+
+    refresh_token: str = Field(description="Opaque refresh token")
+
+
 class TokenPayload(BaseModel):
     """
     Token payload returned by AuthService (framework-agnostic).
 
     - access_token: JWT (short-lived)
     - token_type: OAuth2 convention，值為 bearer
+    - refresh_token: opaque refresh token（rotation 時每次換新；login/register/refresh 都會帶）
 
-    API 層若要加額外欄位（例如 expires_in / refresh_token），
+    API 層若要加額外欄位（例如 expires_in），
     在 `app/api/routers/auth/schemas.py` 建 `TokenResponse(TokenPayload)` 擴充。
     """
 
     access_token: str = Field(description="JWT access token")
     token_type: str = Field(default="bearer", description="Token type (RFC 6750)")
+    refresh_token: str | None = Field(default=None, description="Opaque refresh token")

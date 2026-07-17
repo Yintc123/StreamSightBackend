@@ -5,6 +5,7 @@ os.environ["APP_ENV"] = "test"
 # Test 用 key（僅測試用，不用於任何真實資料）
 os.environ["ENCRYPTION_KEY"] = "test-encryption-key-32-chars-min-length"
 os.environ["JWT_SECRET_KEY"] = "test-jwt-secret-key-32-chars-min-length-for-tests"
+os.environ["REFRESH_TOKEN_HASH_SECRET"] = "test-refresh-token-pepper-32-chars-min-length"
 
 from collections.abc import AsyncGenerator
 from typing import Any

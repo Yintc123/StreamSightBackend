@@ -1,4 +1,4 @@
-from .auth import LoginRequest, RegisterRequest, TokenPayload
+from .auth import LoginRequest, RefreshRequest, RegisterRequest, TokenPayload
 from .user import UserBase, UserCreate, UserUpdate
 
 __all__ = [
@@ -6,6 +6,7 @@ __all__ = [
     "UserCreate",
     "UserUpdate",
     "LoginRequest",
+    "RefreshRequest",
     "RegisterRequest",
     "TokenPayload",
 ]

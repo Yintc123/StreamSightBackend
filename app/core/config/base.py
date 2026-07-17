@@ -74,6 +74,26 @@ class BaseAppSettings(BaseSettings):
         description="Access token expiry in minutes (default 30, max 24h)",
     )
 
+    # refresh token（opaque token，非 JWT，故不加 jwt_ 前綴）
+    refresh_token_expire_seconds: int = Field(
+        default=1209600,  # 14 天
+        ge=1,
+        le=7776000,  # 上限 90 天
+        description="Refresh token expiry in seconds (default 14d, max 90d)",
+    )
+    # refresh token 雜湊用的 pepper（HMAC-SHA256 key），與 jwt_secret_key 分離
+    refresh_token_hash_secret: SecretStr = Field(
+        default=SecretStr(""),
+        description="Server-side pepper for HMAC-hashing refresh tokens (>=32 chars; NEVER expose)",
+    )
+    # reuse 誤判緩解視窗：剛撤銷 N 秒內的重放視為良性並發/重試，只 401 不連坐 family
+    refresh_token_reuse_grace_seconds: int = Field(
+        default=10,
+        ge=0,
+        le=300,
+        description="Grace window (seconds) where re-presenting a just-rotated token does not nuke the family",
+    )
+
     # redis - connection fields
     redis_host: str = Field(default="localhost", description="Redis host")
     redis_port: int = Field(
@@ -164,4 +184,12 @@ class BaseAppSettings(BaseSettings):
         raw: str = value.get_secret_value()
         if len(raw) < 32:
             raise ValueError("jwt_secret_key must be at least 32 characters")
+        return value
+
+    @field_validator("refresh_token_hash_secret", mode="after")
+    @classmethod
+    def _validate_refresh_token_hash_secret(cls, value: SecretStr) -> SecretStr:
+        raw: str = value.get_secret_value()
+        if len(raw) < 32:
+            raise ValueError("refresh_token_hash_secret must be at least 32 characters")
         return value
