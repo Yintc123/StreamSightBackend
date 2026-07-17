@@ -6,7 +6,7 @@
 >
 > 🔗 依賴 [`jwt-role-and-admin.md`](./jwt-role-and-admin.md)（principals supertype、`role` 型別判別子、`grade` claim 掛靠其 JWT 機制）。本規格接手該規格 §11 Open Q3「未來 RBAC 另立規格」。
 >
-> ⚠️ **與 [`admin-account-refinement.md`](./admin-account-refinement.md)（next）的分工**：`AdminRole` enum、`admins.admin_role` 欄（`String(20)` + `CHECK` + 預設 `VIEWER`）、`create` 帶等級、**seed admin 佈 `SUPER_ADMIN`** 已由 admin-account-refinement **提前交付**（因該規格本就在重建 admins 表）。**本規格（next+1）不再重複建 admin 側 enum/欄/seed**，改**在其上疊授權面**：`ADMIN_ROLE_RANK`、JWT `grade` claim、`require_min_admin_role`、`set_role`，並負責 **user 側全套**（`UserTier`、`users.user_tier`、`require_min_tier`、`set_tier`）。下文 admin 側凡標「（已由 admin-account-refinement 交付）」者僅為銜接說明、非本規格新建。另注意：admin 已改 **username 登入**、`is_active` 為**計算屬性**、`AdminResponse = id/username/name/admin_role`——本規格所有 admin 引用以此為準。
+> ⚠️ **與 [`admin-account-refinement.md`](./admin-account-refinement.md)（next）的分工**：`AdminRole` enum、`admins.admin_role` 欄（`String(20)` + `CHECK` + 預設 `VIEWER`）、`create` 帶等級、**seed admin 佈 `SUPER_ADMIN`** 已由 admin-account-refinement **提前交付**（因該規格本就在重建 admins 表）。**本規格（next+1）不再重複建 admin 側 enum/欄/seed**，改**在其上疊授權面**：`ADMIN_ROLE_RANK`、JWT `grade` claim、`require_min_admin_role`、`set_admin_role`，並負責 **user 側全套**（`UserTier`、`users.user_tier`、`require_min_tier`、`set_tier`）。下文 admin 側凡標「（已由 admin-account-refinement 交付）」者僅為銜接說明、非本規格新建。另注意：admin 已改 **username 登入**、`is_active` 為**計算屬性**、`AdminResponse = id/username/name/admin_role`——本規格所有 admin 引用以此為準。
 
 ---
 
@@ -153,7 +153,7 @@ USER_TIER_RANK: dict[UserTier, int] = {
 - `login` / `admin_login`：驗證後讀 child 的等級 → `create_access_token(principal_id, role, grade=<child 等級>)`。
 - `refresh`（角色無關）：**已因驗 `is_active` 而載入 child**（見 jwt-role §5.4）→ 順手讀**最新**等級重簽 `grade`。故每次 rotation 自動刷新 grade，陳舊窗口 ≤ 一個 access TTL（見決策 R5）。
 - **變更等級**：
-  - `UserService.set_tier(user_id, tier)` / `AdminService.set_role(admin_id, admin_role)`：寫 child 欄、commit。（升降權的**業務入口**由後續 admin 管理 API 規格提供；本規格只提供 service 能力與授權機制。）
+  - `UserService.set_tier(user_id, tier)` / `AdminService.set_admin_role(admin_id, admin_role)`：寫 child 欄、commit。（升降權的**業務入口**與完整守衛由 [`admin-management-service.md`](./admin-management-service.md) §3.4 交付；本規格只提供 service 能力與授權機制。**命名採 `set_admin_role`**——改的是 `admins.admin_role` 權限等級，非型別判別子 `role`。）
 
 ### 5.2 DTO / schema
 
@@ -252,7 +252,7 @@ def require_min_tier(minimum: UserTier):
 ### 8.3 Unit — service
 - `login` / `admin_login` 簽出的 token `grade` == child 當前等級。
 - `refresh`：改 `admin.admin_role` 後 refresh → 新 access 的 `grade` 反映**新**值（驗證 rotation 刷新）。
-- `set_tier` / `set_role` 寫入 child、回應反映新值。
+- `set_tier` / `set_admin_role` 寫入 child、回應反映新值。
 
 ### 8.4 Unit/Integration — 授權 dependency
 - `require_min_admin_role(EDITOR)`：`viewer` → 403；`editor`/`super_admin` → 放行。
@@ -273,7 +273,7 @@ def require_min_tier(minimum: UserTier):
 1. `UserTier` enum + `ADMIN_ROLE_RANK` / `USER_TIER_RANK` rank 表（8.1）。
 2. JWT `grade`（`create_access_token` 加參、`extract_grade`，向後相容）（8.1）。
 3. `users.user_tier` 欄 + CHECK + migration（既有列 default `FREE`）（8.2）。
-4. service 簽發帶 `grade` + `refresh` 刷新 + `set_tier`/`set_role`（8.3）。
+4. service 簽發帶 `grade` + `refresh` 刷新 + `set_tier`/`set_admin_role`（8.3）。
 5. `require_min_admin_role` / `require_min_tier`（讀 child 現值）（8.4）。
 6. `UserResponse.tier` + `/me` 曝露（`AdminResponse` 已含 `admin_role`）（8.5）。
 7. 提交前檢查：`ruff` / `ruff format` / `pyright` / `pytest` 全綠；真 MariaDB 驗 upgrade/downgrade。
