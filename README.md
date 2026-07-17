@@ -63,7 +63,7 @@ app/
 
 alembic/                    # 資料庫 migration
 tests/                      # unit / integration 測試
-docs/                       # 主題文件（加密、JWT、logging、Redis 等）
+docs/                       # specs/（功能規格書）＋ decisions/（設計決策與主題筆記）
 docker-compose.yml          # 本機 PostgreSQL + Redis
 ```
 
@@ -239,8 +239,15 @@ CI（GitHub Actions，`.github/workflows/ci.yml`）會在 push / PR 時執行 ru
 
 ## 延伸文件
 
-`docs/` 收錄了實作決策與主題筆記：
+`docs/` 分為兩類：`specs/`（功能規格書，描述「要做什麼／怎麼做」）與 `decisions/`（設計決策與主題筆記，記錄「為什麼這樣設計」）。
 
+**規格書（`docs/specs/`）**
+
+- `refresh-token-rotation.md` — Refresh Token 模組（含 rotation / reuse detection）規格
+
+**設計決策與主題筆記（`docs/decisions/`）**
+
+- `refresh-token-rotation.md` — Refresh Token 的關鍵設計決策與取捨
 - `jwt-auth-fastapi-vs-flask.md` — JWT 認證流程與 FastAPI/Flask 差異
 - `argon2-gil.md` — Argon2 密碼雜湊與 GIL/threadpool 考量
 - `salt-and-iv.md` — 加密的 salt 與 IV
