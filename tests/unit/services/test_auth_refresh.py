@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.auth import hash_refresh_token
+from app.core.auth import decode_token, hash_refresh_token
 from app.core.exceptions import UnauthorizedError
 from app.dtos import RefreshRequest, RegisterRequest
 from app.models import RefreshToken, User
@@ -34,7 +34,7 @@ async def _store_token(
     revoked_at: datetime | None = None,
 ) -> RefreshToken:
     rt = RefreshToken(
-        user_id=user.id,
+        principal_id=user.principal_id,
         token_hash=hash_refresh_token(plaintext),
         family_id=family_id,
         expires_at=datetime.now(UTC) + expires_delta,
@@ -76,6 +76,16 @@ async def test_refresh_rotates_and_revokes_old(db_session: AsyncSession) -> None
     assert old_row.revoked_at is not None
     assert old_row.replaced_by_id == new_row.id
     assert new_row.family_id == old_row.family_id
+
+
+async def test_refresh_new_access_stays_role0_for_user(db_session: AsyncSession) -> None:
+    """user refresh 後新 access 仍 role 0（依 principal.role 重簽，天然防提權）。§8.4。"""
+    auth = AuthService(db_session)
+    old_plain = await _register(auth)
+
+    result = await auth.refresh(RefreshRequest(refresh_token=old_plain))
+
+    assert decode_token(result.access_token)["role"] == 0
 
 
 async def test_refresh_unknown_token_raises(db_session: AsyncSession) -> None:
@@ -195,7 +205,7 @@ async def test_logout_all_revokes_only_target_user(
     a2 = await _store_token(db_session, alice, "a2", family_id="A2")
     b1 = await _store_token(db_session, bob, "b1", family_id="B1")
 
-    await auth.logout_all(alice.id)
+    await auth.logout_all(alice.principal_id)
 
     for t in (a1, a2, b1):
         await db_session.refresh(t)

@@ -94,6 +94,14 @@ class BaseAppSettings(BaseSettings):
         description="Grace window (seconds) where re-presenting a just-rotated token does not nuke the family",
     )
 
+    # 初始 CMS admin（供 seed script 建立；app runtime 非必要，空值時 seed script 報錯）
+    initial_admin_email: str = Field(
+        default="", description="Initial CMS admin email (seed script only)"
+    )
+    initial_admin_password: SecretStr = Field(
+        default=SecretStr(""), description="Initial CMS admin password (seed script only)"
+    )
+
     # redis - connection fields
     redis_host: str = Field(default="localhost", description="Redis host")
     redis_port: int = Field(

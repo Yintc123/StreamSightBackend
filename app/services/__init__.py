@@ -1,7 +1,9 @@
+from .admin import AdminService
 from .auth import AuthService
 from .user import UserService
 
 __all__ = [
-    "UserService",
+    "AdminService",
     "AuthService",
+    "UserService",
 ]

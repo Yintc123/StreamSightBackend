@@ -11,8 +11,10 @@ from app.core.auth import (
     InvalidTokenError,
     create_access_token,
     decode_token,
+    extract_role,
 )
 from app.core.config import BaseAppSettings, get_app_settings
+from app.core.enums import Role
 
 user_id: int = 42
 
@@ -28,7 +30,37 @@ def test_token_has_expected_claims() -> None:
     token: str = create_access_token(user_id)
     payload: dict = decode_token(token)
 
-    assert set(payload.keys()) == {"sub", "type", "iat", "exp"}
+    assert set(payload.keys()) == {"sub", "type", "role", "iat", "exp"}
+
+
+def test_access_token_default_role_is_user() -> None:
+    """不傳 role → 預設 role claim 為 0（Role.USER），不破壞既有呼叫端。"""
+    token: str = create_access_token(user_id)
+    payload: dict = decode_token(token)
+
+    assert payload["role"] == 0
+
+
+def test_access_token_admin_role_claim() -> None:
+    token: str = create_access_token(user_id, Role.ADMIN)
+    payload: dict = decode_token(token)
+
+    assert payload["role"] == 1
+
+
+def test_extract_role_missing_defaults_to_user() -> None:
+    """缺 role claim → fail-safe 最低權限 Role.USER。"""
+    assert extract_role({}) is Role.USER
+
+
+def test_extract_role_reads_claim() -> None:
+    assert extract_role({"role": 0}) is Role.USER
+    assert extract_role({"role": 1}) is Role.ADMIN
+
+
+def test_extract_role_unknown_value_fails_safe_to_user() -> None:
+    """未知整數（如未來版本簽出 role=2）→ 降權而非 500。"""
+    assert extract_role({"role": 2}) is Role.USER
 
 
 def test_sub_is_stringified() -> None:

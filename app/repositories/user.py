@@ -20,3 +20,9 @@ class UserRepository(BaseRepository[User]):
         stmt: Select[tuple[int]] = select(User.id).where(User.email == email).limit(1)
         result: Result[tuple[int]] = await self.session.execute(stmt)
         return result.scalar_one_or_none() is not None
+
+    async def get_by_principal_id(self, principal_id: int) -> User | None:
+        """Fetch a user by its principal_id（refresh / 授權 dependency 依 role 分流後用）。"""
+        stmt: Select[tuple[User]] = select(User).where(User.principal_id == principal_id)
+        result: Result[tuple[User]] = await self.session.execute(stmt)
+        return result.scalar_one_or_none()

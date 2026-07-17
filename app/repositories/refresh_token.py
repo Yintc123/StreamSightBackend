@@ -49,11 +49,11 @@ class RefreshTokenRepository(BaseRepository[RefreshToken]):
         result: CursorResult[tuple[int]] = await self.session.execute(stmt)  # pyright: ignore[reportAssignmentType]
         return result.rowcount or 0
 
-    async def revoke_all_for_user(self, user_id: int, revoked_at: datetime) -> int:
-        """Revoke all still-active tokens for a user (logout-all)。回傳撤銷筆數。"""
+    async def revoke_all_for_principal(self, principal_id: int, revoked_at: datetime) -> int:
+        """Revoke all still-active tokens for a principal (logout-all，角色無關)。回傳撤銷筆數。"""
         stmt: Update = (
             sql_update(RefreshToken)
-            .where(RefreshToken.user_id == user_id, RefreshToken.revoked_at.is_(None))
+            .where(RefreshToken.principal_id == principal_id, RefreshToken.revoked_at.is_(None))
             .values(revoked_at=revoked_at)
             .execution_options(synchronize_session=False)
         )

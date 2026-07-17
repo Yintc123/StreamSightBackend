@@ -3,7 +3,7 @@
 覆蓋：
     - get_by_hash lookup
     - consume（原子式消費：active→True 並撤銷/設 replaced_by；已撤銷→False 不覆寫）
-    - revoke_family / revoke_all_for_user（只撤 active、回正確筆數、不越界）
+    - revoke_family / revoke_all_for_principal（只撤 active、回正確筆數、不越界）
     - delete_expired（只刪過期、回筆數；含自參考 FK 鏈的批次刪除不報 FK 違規）
 """
 
@@ -26,7 +26,7 @@ async def _make_token(
     replaced_by_id: int | None = None,
 ) -> RefreshToken:
     rt: RefreshToken = RefreshToken(
-        user_id=user.id,
+        principal_id=user.principal_id,
         token_hash=token_hash,
         family_id=family_id,
         expires_at=datetime.now(UTC) + expires_delta,
@@ -107,8 +107,8 @@ async def test_revoke_family_only_revokes_matching_active(
     assert f2.revoked_at is None  # 其他 family 不受影響
 
 
-# ── revoke_all_for_user ─────────────────────────────────────
-async def test_revoke_all_for_user_only_active_and_scoped(
+# ── revoke_all_for_principal ────────────────────────────────
+async def test_revoke_all_for_principal_only_active_and_scoped(
     db_session: AsyncSession, alice: User, bob: User
 ) -> None:
     repo = RefreshTokenRepository(db_session)
@@ -118,13 +118,13 @@ async def test_revoke_all_for_user_only_active_and_scoped(
     )
     b_active = await _make_token(db_session, bob, token_hash="b-active")
 
-    count = await repo.revoke_all_for_user(alice.id, datetime.now(UTC))
+    count = await repo.revoke_all_for_principal(alice.principal_id, datetime.now(UTC))
 
     assert count == 1  # 只有 a_active（a_revoked 已撤銷不算）
     for t in (a_active, a_revoked, b_active):
         await db_session.refresh(t)
     assert a_active.revoked_at is not None
-    assert b_active.revoked_at is None  # 其他 user 不受影響
+    assert b_active.revoked_at is None  # 其他 principal 不受影響
 
 
 # ── delete_expired ──────────────────────────────────────────

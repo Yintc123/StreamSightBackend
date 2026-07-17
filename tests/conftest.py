@@ -31,9 +31,14 @@ from app.core.config import BaseAppSettings, get_app_settings
 from app.core.db import Base
 from app.core.redis import RedisCache
 from app.dtos import UserCreate, UserUpdate
+from app.models.admin import Admin
 from app.models.user import User
-from app.services import UserService
+from app.services import AdminService, UserService
 from tests.payloads import user_payload
+
+# 測試用初始 admin 憑證（僅測試，不用於真實資料）
+ADMIN_EMAIL: str = "admin@example.com"
+ADMIN_PASSWORD: str = "admin-longpassword"
 
 
 # ────────────────────────────────────────────────
@@ -166,6 +171,13 @@ async def inactive_user(db_session: AsyncSession, alice: User) -> User:
     """Alice, but deactivated (is_active=False)."""
     service: UserService = UserService(db_session)
     return await service.update(alice.id, UserUpdate(is_active=False))
+
+
+@pytest.fixture
+async def admin(db_session: AsyncSession) -> Admin:
+    """Pre-created CMS admin (role=1) via AdminService (seed-equivalent)."""
+    service: AdminService = AdminService(db_session)
+    return await service.create(email=ADMIN_EMAIL, name="Root", password=ADMIN_PASSWORD)
 
 
 # ────────────────────────────────────────────────

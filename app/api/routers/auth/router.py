@@ -1,9 +1,8 @@
 from fastapi import APIRouter, Depends, status
 
-from app.api.dependencies import get_auth_service, get_current_user
+from app.api.dependencies import get_auth_service, get_current_principal
 from app.core.config import get_app_settings
-from app.dtos import LoginRequest, RefreshRequest, RegisterRequest, TokenPayload
-from app.models import User
+from app.dtos import CurrentPrincipal, LoginRequest, RefreshRequest, RegisterRequest, TokenPayload
 from app.services import AuthService
 
 from .schemas import TokenResponse
@@ -60,8 +59,8 @@ async def logout(
 
 @router.post("/logout-all", status_code=status.HTTP_204_NO_CONTENT)
 async def logout_all(
-    current_user: User = Depends(get_current_user),
+    principal: CurrentPrincipal = Depends(get_current_principal),
     service: AuthService = Depends(get_auth_service),
 ) -> None:
-    """Revoke all refresh tokens for the current user (logout all devices)."""
-    await service.logout_all(current_user.id)
+    """Revoke all refresh tokens for the current principal (角色無關；user / admin 皆可)."""
+    await service.logout_all(principal.id)

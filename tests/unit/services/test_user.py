@@ -1,13 +1,21 @@
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.enums import Role
 from app.core.exceptions import ConflictError, NotFoundError
 from app.dtos import UserCreate, UserUpdate
-from app.models import User
+from app.models import Principal, RefreshToken, User
+from app.repositories.principal import PrincipalRepository
 from app.services import UserService
 from tests.payloads import user_payload
+
+
+async def _count_principals(db_session: AsyncSession) -> int:
+    return (await db_session.execute(select(func.count()).select_from(Principal))).scalar_one()
 
 
 async def test_create_user(db_session: AsyncSession) -> None:
@@ -27,8 +35,11 @@ async def test_user_can_be_created_without_email(db_session: AsyncSession) -> No
 
     UserService.create() 走 UserCreate DTO 一定要 email、但底層 User model
     允許 email=None (為未來 OAuth flow 直接建 User 準備)。
+
+    注意：User 現在必須掛上 principal（見 jwt-role-and-admin 規格），故先建 principal。
     """
-    user: User = User(email=None, name="OAuth User")
+    principal: Principal = await PrincipalRepository(db_session).create(Role.USER)
+    user: User = User(email=None, name="OAuth User", principal_id=principal.id)
     db_session.add(user)
     await db_session.commit()
     await db_session.refresh(user)
@@ -36,6 +47,34 @@ async def test_user_can_be_created_without_email(db_session: AsyncSession) -> No
     assert user.id is not None
     assert user.email is None
     assert user.name == "OAuth User"
+    assert user.principal_id == principal.id
+
+
+async def test_delete_user_cascades_via_principal(db_session: AsyncSession, alice: User) -> None:
+    """delete(user_id) → 刪 principals 該列，CASCADE 連帶清 user + refresh_tokens，無孤兒 principal。"""
+    token: RefreshToken = RefreshToken(
+        principal_id=alice.principal_id,
+        token_hash="del-user-hash",
+        family_id="fam-del",
+        expires_at=datetime.now(UTC) + timedelta(days=1),
+    )
+    db_session.add(token)
+    await db_session.commit()
+    principals_before: int = await _count_principals(db_session)
+    service: UserService = UserService(db_session)
+
+    await service.delete(alice.id)
+
+    assert await service.repo.get(alice.id) is None
+    assert (
+        await _count_principals(db_session) == principals_before - 1
+    )  # principal 亦被刪（無孤兒）
+    token_left = (
+        await db_session.execute(
+            select(RefreshToken).where(RefreshToken.principal_id == alice.principal_id)
+        )
+    ).scalar_one_or_none()
+    assert token_left is None
 
 
 async def test_create_duplicate_email_raises_conflict(

@@ -7,9 +7,24 @@ Auth domain DTOs - framework-agnostic (no FastAPI / SQLAlchemy imports).
     - token response format
 """
 
+from dataclasses import dataclass
+
 from pydantic import BaseModel, EmailStr, Field
 
+from app.core.enums import Role
+
 from .user import UserBase
+
+
+@dataclass(frozen=True)
+class CurrentPrincipal:
+    """輕量值物件：由已驗簽 token 取 (principal_id, role)，**不查 DB**。
+
+    供 logout-all 等「角色無關、只需當前身分 id/role」的端點（見 §5.6）。
+    """
+
+    id: int  # = sub（principal_id）
+    role: Role
 
 
 class RegisterRequest(UserBase):

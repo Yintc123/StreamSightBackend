@@ -1,6 +1,6 @@
 # 規格書：JWT Role 機制與 Admin（CMS）角色
 
-> 狀態：Draft ／ 目標版本：next ／ 開發模式：**嚴格 TDD（見 `CLAUDE.md`）**
+> 狀態：**已實作**（enum/JWT role、principals supertype、複合 FK、Admin 模組、授權 dependency、seed 均已落地；migration 手寫待真 MariaDB 驗證，見 §12 cutover）／ 目標版本：next ／ 開發模式：**嚴格 TDD（見 `CLAUDE.md`）**
 >
 > 📎 關鍵設計決策與取捨（為什麼這樣設計）另記於 [`../decisions/jwt-role-and-admin.md`](../decisions/jwt-role-and-admin.md)。本文聚焦「怎麼做」（資料模型／介面／流程／測試計畫）。
 >

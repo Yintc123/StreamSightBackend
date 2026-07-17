@@ -18,9 +18,10 @@ from app.core.db import Base
 class RefreshToken(Base):
     __tablename__ = "refresh_tokens"
 
-    # 綁定到哪個 user（user 刪除時一併清除）
-    user_id: Mapped[int] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"),
+    # 綁定到哪個 principal（user / admin 共用同一套 rotation；principal 刪除時一併清除）。
+    # 擁有者接到 principals 而非某一 child，refresh/logout 因此角色無關（見 D1/D2）。
+    principal_id: Mapped[int] = mapped_column(
+        ForeignKey("principals.id", ondelete="CASCADE"),
         index=True,
     )
     # HMAC-SHA256(pepper, plaintext) 的 hex digest；查詢與唯一性都靠它
@@ -38,4 +39,7 @@ class RefreshToken(Base):
     )
 
     def __repr__(self) -> str:
-        return f"<RefreshToken id={self.id} user_id={self.user_id} family={self.family_id!r}>"
+        return (
+            f"<RefreshToken id={self.id} principal_id={self.principal_id} "
+            f"family={self.family_id!r}>"
+        )

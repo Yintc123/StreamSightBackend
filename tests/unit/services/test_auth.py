@@ -4,14 +4,30 @@ from datetime import UTC, datetime, timedelta
 
 import jwt
 import pytest
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import decode_token
 from app.core.config import get_app_settings
+from app.core.enums import Role
 from app.core.exceptions import ConflictError, UnauthorizedError
 from app.dtos import LoginRequest, RegisterRequest
-from app.models import User
+from app.models import Principal, User
+from app.repositories.principal import PrincipalRepository
 from app.services import AuthService
+
+
+async def _count_principals(db_session: AsyncSession) -> int:
+    return (await db_session.execute(select(func.count()).select_from(Principal))).scalar_one()
+
+
+async def _offset_principal_sequence(db_session: AsyncSession) -> None:
+    """建一個獨立 principal 讓 principals 與 users 的自增序列錯開，
+
+    使 principal_id != user.id，才能區分 sub 用的是 principal_id 而非 user.id。
+    """
+    await PrincipalRepository(db_session).create(Role.ADMIN)
+    await db_session.commit()
 
 
 async def test_register_creates_user_with_hashed_password_identity(
@@ -45,6 +61,98 @@ async def test_register_returns_valid_token(db_session: AsyncSession) -> None:
     payload: dict = decode_token(token_resp.access_token)
     assert payload["type"] == "access"
     assert "sub" in payload
+
+
+async def test_register_token_sub_is_principal_id_with_user_role(db_session: AsyncSession) -> None:
+    """access token 的 sub = principal_id（非 user.id）、role claim = 0。"""
+    await _offset_principal_sequence(db_session)
+    auth: AuthService = AuthService(db_session)
+
+    resp = await auth.register(
+        RegisterRequest(email="psub@example.com", name="P", password="longpassword")
+    )
+
+    user: User | None = await auth.user_service.repo.get_by_email("psub@example.com")
+    assert user is not None
+    assert user.principal_id != user.id  # 序列已錯開，區分得出 sub 用哪個
+    payload: dict = decode_token(resp.access_token)
+    assert payload["sub"] == str(user.principal_id)
+    assert payload["role"] == 0
+
+
+async def test_login_token_sub_is_principal_id_with_user_role(db_session: AsyncSession) -> None:
+    await _offset_principal_sequence(db_session)
+    auth: AuthService = AuthService(db_session)
+    await auth.register(
+        RegisterRequest(email="lsub@example.com", name="L", password="longpassword")
+    )
+
+    resp = await auth.login(LoginRequest(email="lsub@example.com", password="longpassword"))
+
+    user: User | None = await auth.user_service.repo.get_by_email("lsub@example.com")
+    assert user is not None
+    assert user.principal_id != user.id
+    payload: dict = decode_token(resp.access_token)
+    assert payload["sub"] == str(user.principal_id)
+    assert payload["role"] == 0
+
+
+async def test_login_inactive_user_raises_unauthorized(db_session: AsyncSession) -> None:
+    """停用帳號登入（正確帳密）→ UnauthorizedError（統一訊息），不發 token。"""
+    auth: AuthService = AuthService(db_session)
+    await auth.register(
+        RegisterRequest(email="ialogin@example.com", name="IA", password="longpassword")
+    )
+    user: User | None = await auth.user_service.repo.get_by_email("ialogin@example.com")
+    assert user is not None
+    user.is_active = False
+    await db_session.commit()
+
+    with pytest.raises(UnauthorizedError) as exc:
+        await auth.login(LoginRequest(email="ialogin@example.com", password="longpassword"))
+    assert exc.value.message == "Invalid email or password"
+
+
+async def test_get_user_from_token_resolves_by_principal_id(db_session: AsyncSession) -> None:
+    """sub=principal_id 時，get_user_from_token 依 principal_id 解析出正確 user。"""
+    await _offset_principal_sequence(db_session)
+    auth: AuthService = AuthService(db_session)
+    resp = await auth.register(
+        RegisterRequest(email="resolve@example.com", name="R", password="longpassword")
+    )
+
+    user: User = await auth.get_user_from_token(resp.access_token)
+
+    assert user.email == "resolve@example.com"
+    assert user.principal_id != user.id
+
+
+async def test_register_mid_failure_leaves_no_residue(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """交易原子性（UoW）：register 中途失敗（identity 建立拋例外）→ 資料庫零殘留。
+
+    釘死 §5.4 UoW：principal + user + identity + refresh 必須同一 commit 落地，
+    失敗整批 rollback；不得留下孤兒 principal（舊多段 commit 會殘留）。
+    """
+    auth: AuthService = AuthService(db_session)
+    email: str = "residue@example.com"
+    principals_before: int = await _count_principals(db_session)
+
+    async def _boom(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("identity insert failed")
+
+    monkeypatch.setattr(auth.identity_repo, "add", _boom)
+
+    with pytest.raises(RuntimeError):
+        await auth.register(RegisterRequest(email=email, name="R", password="longpassword"))
+
+    # 零殘留：無 user、無孤兒 principal、無 refresh token
+    assert await auth.user_service.repo.get_by_email(email) is None
+    assert await _count_principals(db_session) == principals_before
+    assert (
+        await db_session.execute(select(func.count()).select_from(User).where(User.email == email))
+    ).scalar_one() == 0
 
 
 async def test_register_duplicate_email_raises_conflict(db_session: AsyncSession) -> None:
