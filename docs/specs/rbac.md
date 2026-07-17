@@ -5,6 +5,8 @@
 > 📎 關鍵設計決策與取捨（為什麼這樣設計）另記於 [`../decisions/rbac.md`](../decisions/rbac.md)。本文聚焦「怎麼做」。
 >
 > 🔗 依賴 [`jwt-role-and-admin.md`](./jwt-role-and-admin.md)（principals supertype、`role` 型別判別子、`grade` claim 掛靠其 JWT 機制）。本規格接手該規格 §11 Open Q3「未來 RBAC 另立規格」。
+>
+> ⚠️ **與 [`admin-account-refinement.md`](./admin-account-refinement.md)（next）的分工**：`AdminRole` enum、`admins.admin_role` 欄（`String(20)` + `CHECK` + 預設 `VIEWER`）、`create` 帶等級、**seed admin 佈 `SUPER_ADMIN`** 已由 admin-account-refinement **提前交付**（因該規格本就在重建 admins 表）。**本規格（next+1）不再重複建 admin 側 enum/欄/seed**，改**在其上疊授權面**：`ADMIN_ROLE_RANK`、JWT `grade` claim、`require_min_admin_role`、`set_role`，並負責 **user 側全套**（`UserTier`、`users.user_tier`、`require_min_tier`、`set_tier`）。下文 admin 側凡標「（已由 admin-account-refinement 交付）」者僅為銜接說明、非本規格新建。另注意：admin 已改 **username 登入**、`is_active` 為**計算屬性**、`AdminResponse = id/username/name/admin_role`——本規格所有 admin 引用以此為準。
 
 ---
 
@@ -19,11 +21,11 @@
 
 ### 目標
 
-- `UserTier`（user 側）／`AdminRole`（admin 側）兩個 **`StrEnum`**；admin 側附權限**排序**。
-- `users.user_tier`、`admins.admin_role` 各一欄（DB `CHECK` 值域硬化；預設**最低權限** fail-safe）。
+- `UserTier`（user 側，**本規格新建**）／`AdminRole`（admin 側，**已由 admin-account-refinement 交付**）兩個 **`StrEnum`**；admin 側的權限**排序**（`ADMIN_ROLE_RANK`）由本規格加。
+- `users.user_tier`（**本規格新建**）；`admins.admin_role`（**已由 admin-account-refinement 交付**，含 CHECK + 預設 `VIEWER`）。兩者皆 DB `CHECK` 值域硬化、預設**最低權限** fail-safe。
 - JWT 新增 **`grade` claim**（該型別內等級的字串值），供前端渲染 UI；後端授權仍讀 child 現值。
 - 授權 dependency：`require_min_admin_role(...)`（階梯）、`require_min_tier(...)`；`/me` 曝露等級供前端。
-- seed 初始 admin 佈為 `SUPER_ADMIN`。
+- seed 初始 admin 佈為 `SUPER_ADMIN`（**已由 admin-account-refinement 的 seed 交付**）。
 
 ### 非目標（Out of scope）
 
@@ -48,25 +50,25 @@
 
 ### 3.1 Enum（`app/core/enums.py`）
 
-型別判別子 `Role` 是 `IntEnum`（對外整數）；本層等級是**給前端讀的字串**，用 `StrEnum`（對齊既有 `AppEnv`/`LogLevel`）：
+型別判別子 `Role` 是 `IntEnum`（對外整數）；本層等級是**給前端讀的字串**，用 `StrEnum`（對齊既有 `AppEnv`/`LogLevel`）。
+
+**`AdminRole` 已由 [`admin-account-refinement.md`](./admin-account-refinement.md) 定義於 `app/core/enums.py`**（`SUPER_ADMIN`/`EDITOR`/`VIEWER`）——本規格**不重複定義**，僅新增 **`UserTier`** 與兩個 **rank 表**（有序階梯，供 `require_min_*` 比較）：
 
 ```python
 from enum import StrEnum
 
+from app.core.enums import AdminRole  # 已存在（admin-account-refinement 交付）
+
+# 【本規格新增】user 側等級 enum
 class UserTier(StrEnum):
     FREE = "free"
     PREMIUM = "premium"
 
-class AdminRole(StrEnum):
-    SUPER_ADMIN = "super_admin"  # 全權，含管理其他 admin
-    EDITOR    = "editor"     # 日常 CMS 讀寫，不含管理 admin
-    VIEWER      = "viewer"       # 唯讀
-
-# 權限高→低（值越大權限越高）；供 require_min_* 階梯比較
+# 【本規格新增】權限高→低（值越大權限越高）；供 require_min_* 階梯比較
 ADMIN_ROLE_RANK: dict[AdminRole, int] = {
     AdminRole.SUPER_ADMIN: 2,
-    AdminRole.EDITOR:     1,
-    AdminRole.VIEWER:       0,
+    AdminRole.EDITOR:      1,
+    AdminRole.VIEWER:      0,
 }
 USER_TIER_RANK: dict[UserTier, int] = {
     UserTier.FREE:    0,
@@ -74,7 +76,7 @@ USER_TIER_RANK: dict[UserTier, int] = {
 }
 ```
 
-> **命名刻意避開 `USER` / `ADMIN`**：`Role.USER` / `Role.ADMIN` 已是型別判別子；admin 等級用 `SUPER_ADMIN / EDITOR / VIEWER`，避免 `AdminRole.USER` 與 `Role.USER` 在程式與 JWT 中混淆（見決策 R3）。
+> **命名刻意避開 `USER` / `ADMIN`**：`Role.USER` / `Role.ADMIN` 已是型別判別子；admin 等級用 `SUPER_ADMIN / EDITOR / VIEWER`，避免 `AdminRole.USER` 與 `Role.USER` 在程式與 JWT 中混淆（見決策 R3）。此命名決策已在 admin-account-refinement 落實。
 
 ### 3.2 Child 欄位（各自一欄，DB CHECK 硬化）
 
@@ -90,21 +92,16 @@ USER_TIER_RANK: dict[UserTier, int] = {
       ),
   )
   ```
-- `Admin`（改）：新增 `admin_role`，**預設 `VIEWER`**（最低權限 fail-safe）：
+- `Admin`：**`admin_role` 欄已由 [`admin-account-refinement.md`](./admin-account-refinement.md) §3.1 交付**（`String(20)`、`default`/`server_default` = `VIEWER`、`CHECK ck_admins_admin_role`）——本規格**不再新增此欄**，直接使用。（原設計如下，僅供對照：）
   ```python
+  # 已存在於 app/models/admin.py（admin-account-refinement 交付），此處不重複新建
   admin_role: Mapped[str] = mapped_column(
       String(20), default=AdminRole.VIEWER.value, server_default=AdminRole.VIEWER.value
   )
-  __table_args__ = (
-      # ...既有約束（複合 FK、CHECK(role=1)）...
-      CheckConstraint(
-          "admin_role IN ('super_admin','editor','viewer')",
-          name="ck_admins_admin_role",
-      ),
-  )
+  # CheckConstraint("admin_role IN ('super_admin','editor','viewer')", name="ck_admins_admin_role")
   ```
 
-> **⚠️ `admins` 會有兩個「role」相關欄位，用途完全不同、勿混淆**（實作時各加註解）：
+> **⚠️ `admins` 有兩個「role」相關欄位，用途完全不同、勿混淆**（admin-account-refinement 已於 model 加註解）：
 > - `role`（`SmallInteger`，**常數 1**）＝ jwt-role 的**型別判別子**，不可變、被複合 FK + `CHECK(role=1)` 釘死、決定「這是 admin」。**不進 DTO、不對外**。
 > - `admin_role`（`String`，`super_admin`/`editor`/`viewer`）＝ 本規格的**權限等級**，可變、供授權與 `grade` claim。
 >
@@ -114,13 +111,15 @@ USER_TIER_RANK: dict[UserTier, int] = {
 >
 > 亦可改用 `Enum(AdminRole, native_enum=False, length=20)`（SQLAlchemy 在非原生方言自動產 VARCHAR + CHECK）；本規格採「顯式 `String` + 手寫 `CheckConstraint`」以貼齊此 codebase 既有風格。
 
-### 3.3 Migration（新 revision，接 jwt-role-and-admin 的最後一支）
+### 3.3 Migration（新 revision，接 admin-account-refinement 之後）
+
+**本規格只需處理 `users.user_tier`**——`admins.admin_role` 欄與其 `CHECK` 已由 admin-account-refinement 就地建入 `admins` 表（見其 §3.2），此處**不再動 admins**。
 
 1. `users` `ADD COLUMN user_tier VARCHAR(20) NOT NULL DEFAULT 'free'` + `CHECK(user_tier IN ('free','premium'))`。既有列由 default 自動填 `FREE`（無需另行回填）。
-2. `admins` `ADD COLUMN admin_role VARCHAR(20) NOT NULL DEFAULT 'viewer'` + `CHECK(admin_role IN ('super_admin','editor','viewer'))`。
-3. **既有 seed admin 升為 `SUPER_ADMIN`**：`UPDATE admins SET admin_role='super_admin' WHERE email = :initial_admin_email`（或改由 seed script 冪等設定，見 §5.6）。否則全體 admin 都停在 `VIEWER`、無人能升權。
-4. down：對稱 drop 兩欄與兩個 CHECK。
+2. down：對稱 drop `users.user_tier` 與其 CHECK。
 
+> **seed admin 升 `SUPER_ADMIN` 不在此 migration**：改由 admin-account-refinement 的 **seed script 於建立時直接以 `AdminRole.SUPER_ADMIN` 佈建**（`create(..., admin_role=SUPER_ADMIN)`），非 `UPDATE ... WHERE email`（admin 已無 email 欄）。故本規格無需「回填既有 seed admin」步驟。
+>
 > 測試走 SQLite `create_all`（不經 migration）；CHECK 需 SQLite 實際強制（本專案 conftest 已具備）。產出後人工檢視、真 MariaDB 驗 upgrade/downgrade。
 
 ---
@@ -158,7 +157,7 @@ USER_TIER_RANK: dict[UserTier, int] = {
 
 ### 5.2 DTO / schema
 
-- `UserResponse` 加 `tier: UserTier`；新增 `AdminResponse`（`id` / `email` / `name` / `is_active` / `admin_role`）。
+- **本規格只需為 user 側加 `UserResponse.tier: UserTier`**。**`AdminResponse` 已含 `admin_role`**（由 admin-account-refinement 交付，形狀為 `id/username/name/admin_role`——注意是 **username 非 email、無 is_active**），本規格不再改它。
 - **`/me` 是前端等級的真實來源**（每次讀 child 現值、永遠新鮮）；JWT `grade` 只當「零往返初始提示」。
 
 ### 5.3 授權 dependencies（`app/api/dependencies/auth.py`）
@@ -206,9 +205,9 @@ def require_min_tier(minimum: UserTier):
 - **`grade` 非授權邊界**：前端竄改解出的值無效——授權由後端 `require_min_admin_role` 讀 child 現值判定（見 §7、決策 R5）。
 - **等級變更即時生效**（如降權/付費升級）：後端變更後，前端**強制 refresh 一次** token（或重打 `/me`）。
 
-### 5.6 Seed script（`scripts/create_admin.py` 補強）
+### 5.6 Seed script
 
-初始 admin 佈為 `admin_role = SUPER_ADMIN`（冪等：已存在則確保其為 SUPER_ADMIN 或略過）。
+**已由 admin-account-refinement 交付**：`scripts/create_admin.py` 於建立初始 admin 時直接傳 `admin_role=AdminRole.SUPER_ADMIN`（見其 §4）。本規格無需再動 seed。
 
 ---
 
@@ -269,14 +268,15 @@ def require_min_tier(minimum: UserTier):
 
 ## 9. 實作順序（TDD 里程碑）
 
-1. `UserTier` / `AdminRole` enum + rank（8.1）。
+> 前置：admin 側 `AdminRole` enum、`admins.admin_role` 欄（+CHECK+預設 VIEWER）、seed SUPER_ADMIN **已由 admin-account-refinement 完成**；以下為本規格增量。
+
+1. `UserTier` enum + `ADMIN_ROLE_RANK` / `USER_TIER_RANK` rank 表（8.1）。
 2. JWT `grade`（`create_access_token` 加參、`extract_grade`，向後相容）（8.1）。
-3. `users.user_tier` / `admins.admin_role` 欄 + CHECK + migration（seed admin 升 SUPER_ADMIN）（8.2）。
+3. `users.user_tier` 欄 + CHECK + migration（既有列 default `FREE`）（8.2）。
 4. service 簽發帶 `grade` + `refresh` 刷新 + `set_tier`/`set_role`（8.3）。
 5. `require_min_admin_role` / `require_min_tier`（讀 child 現值）（8.4）。
-6. `AdminResponse` + `UserResponse.tier` + `/me` 曝露（8.5）。
-7. seed script 佈 SUPER_ADMIN（8.5）。
-8. 提交前檢查：`ruff` / `ruff format` / `pyright` / `pytest` 全綠；真 MariaDB 驗 upgrade/downgrade。
+6. `UserResponse.tier` + `/me` 曝露（`AdminResponse` 已含 `admin_role`）（8.5）。
+7. 提交前檢查：`ruff` / `ruff format` / `pyright` / `pytest` 全綠；真 MariaDB 驗 upgrade/downgrade。
 
 ---
 
@@ -284,6 +284,7 @@ def require_min_tier(minimum: UserTier):
 
 - ✅ 方案 A（等級 enum），非方案 B（permissions 表）；權限層與型別判別子分離（見 R1/R2）。
 - ✅ `AdminRole = SUPER_ADMIN / EDITOR / VIEWER`（有序階梯）；`UserTier = FREE / PREMIUM`（示範，待確認）。
+- ✅ **admin 側 enum/欄/預設/seed 由 admin-account-refinement（next）交付；本規格（next+1）疊授權面（rank/grade/require_min）＋ user 側全套**。
 - ✅ JWT 加 `grade` claim（`StrEnum` 字串，避開 `role` 名）；後端授權讀 child 現值、claim 僅 UX。
 - ✅ fail-safe 預設最低權限（`VIEWER` / `FREE`），seed admin 例外 `SUPER_ADMIN`。
 - ✅ DB `CHECK` 值域硬化。

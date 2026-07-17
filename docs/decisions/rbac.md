@@ -84,4 +84,6 @@
 
 **理由**：對齊 jwt-role D6/D8 的最小權限與 fail-safe——新實體、缺值一律落到最低權限，絕不預設高權。升權是明確、可稽核的動作。
 
-**取捨**：seed / migration 需記得把初始 admin 拉到 SUPER_ADMIN（規格 §3.3/§5.6 已明列），否則系統啟動即「全員 VIEWER、無人能管理」。這是刻意的一次性 bootstrap 步驟。
+**取捨**：seed 需把初始 admin 佈為 SUPER_ADMIN，否則系統啟動即「全員 VIEWER、無人能管理」。這是刻意的一次性 bootstrap 步驟。
+
+> 📌 **交付位置更新**：`admin_role` 欄（含預設 `VIEWER`）與「seed admin 佈 SUPER_ADMIN」**已由 [`../specs/admin-account-refinement.md`](../specs/admin-account-refinement.md) 提前落地**（seed 於 `create(..., admin_role=SUPER_ADMIN)` 直接設定，**非** `UPDATE ... WHERE email`——admin 已無 email 欄）。本決策（fail-safe 最低權限、seed 例外）不變，僅交付規格由 rbac 移至 admin-account-refinement。

@@ -74,6 +74,8 @@
 
 **決策**：`is_active` 留在 **`users` / `admins` 各自一欄**（不上移 `principals`）；`email`、`name` 亦留 child。父表 `principals` **只承載判別子 `role`**。既有 `user.is_active` / `UserResponse` **零改動**。
 
+> 📌 **admin 側後續演進（[`../specs/admin-account-refinement.md`](../specs/admin-account-refinement.md)，next）**：`admins` 的 `is_active` 由**實體欄改為計算屬性**（`archived_at`/`deleted_at` 皆 NULL 才 True），`email` 改 **username**。本決策的核心（狀態／識別屬性留 child、**本地欄位讀取免 join、async 免 `MissingGreenlet`**）**依然成立且更強**——`archived_at`/`deleted_at` 仍是 `admins` 本地欄，計算屬性讀的就是已載入那列。**User 側完全不動**。
+
 **脈絡**：曾考慮把 `is_active`（帳號能不能用）依 class-table inheritance「共有屬性放父表」原則上移到 `principals`，讓「停用任一帳號」是對父表一次 UPDATE、且 `refresh` 一次 `principals` 查詢即得 `role` + `is_active`。但在 **async SQLAlchemy** 下，這個正規化純度是有代價的。
 
 **為何最終留 child**：

@@ -5,8 +5,8 @@
 > 📎 關鍵設計決策與取捨（為什麼這樣設計）另記於 [`../decisions/jwt-role-and-admin.md`](../decisions/jwt-role-and-admin.md)。本文聚焦「怎麼做」（資料模型／介面／流程／測試計畫）。
 >
 > 🔗 依賴既有的 refresh token 模組 [`refresh-token-rotation.md`](./refresh-token-rotation.md)——本規格會把 refresh token 的擁有者接到新的 **`principals` supertype** 表。
-
----
+>
+> ⚠️ **部分內容已被 [`admin-account-refinement.md`](./admin-account-refinement.md)（next）取代**：本規格描述的 `Admin` 為**當時落地版本**（email 登入、`is_active` 布林欄、物理刪除、`AdminResponse` 含 email）。後續 admin-account-refinement 將其改為 **username 登入、移除 email、`is_active` 為計算屬性（封存 `archived_at` / 軟刪除 `deleted_at`）、新增 `admin_role` 等級欄、`AdminResponse = id/username/name/admin_role`**。**凡涉及 admin 的 email / is_active / 物理刪除 / AdminResponse / seed 之敘述，以 admin-account-refinement 為準**；本規格保留為歷史記錄，principals/複合 FK/JWT role/refresh 機制仍有效不變。
 
 ## 1. 背景與目標
 
@@ -145,7 +145,7 @@ class Principal(Base):
   )
   ```
   `email` / `name` / `is_active` 全留在 `users`（見 §3.2 邊界原則）。既有 `user.is_active` / `UserResponse` **零改動**（`role` 常數欄不進 DTO）。〔範圍註：此「零改動」僅限本規格階段；後續 [`rbac.md`](./rbac.md) 會再為 `UserResponse` 加 `tier` 欄。〕
-- `Admin`（新，`app/models/admin.py`）：**自帶 `is_active` 欄位**，同樣加常數判別欄 `role=1` + 複合 FK：
+- `Admin`（新，`app/models/admin.py`）〔⚠️ 此 email + `is_active` 布林版本**已被 [`admin-account-refinement.md`](./admin-account-refinement.md) 取代**：改 username、`is_active` 為計算屬性、加 `admin_role`；見文首取代註記〕：**自帶 `is_active` 欄位**，同樣加常數判別欄 `role=1` + 複合 FK：
   ```python
   class Admin(Base):
       __tablename__ = "admins"
