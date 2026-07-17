@@ -22,18 +22,18 @@ class BaseAppSettings(BaseSettings):
 
     # database - connection fields
     db_dialect: str = Field(
-        default="postgresql+asyncpg",
-        description="SQLAlchemy dialect+driver (postgresql+asyncpg / sqlite+aiosqlite / mysql+aiomysql)",
+        default="mysql+asyncmy",
+        description="SQLAlchemy dialect+driver (mysql+asyncmy / postgresql+asyncpg / sqlite+aiosqlite)",
     )
     db_host: str = Field(default="localhost", description="DB host (ignored for SQLite)")
-    db_port: int = Field(default=5432, ge=1, le=65535, description="DB port (ignored for SQLite)")
-    db_user: str = Field(default="postgres", description="DB user (ignored for SQLite)")
+    db_port: int = Field(default=3306, ge=1, le=65535, description="DB port (ignored for SQLite)")
+    db_user: str = Field(default="streamsight", description="DB user (ignored for SQLite)")
     # SecretStr 可以讓密碼不顯示於 log 中，db_password 顯示為 SecretStr('**********')
     db_password: SecretStr = Field(
         default=SecretStr(""),
         description="DB password (ignored for SQLite; use secret manager in prod)",
     )
-    db_name: str = Field(default="app", description="DB name (or SQLite file path)")
+    db_name: str = Field(default="streamsight", description="DB name (or SQLite file path)")
 
     # database - engine config
     database_echo: bool = Field(

@@ -1,9 +1,17 @@
+from pydantic_settings import SettingsConfigDict
+
 from app.core.enums import LogLevel
 
 from .base import BaseAppSettings
 
 
 class TestAppSettings(BaseAppSettings):
+    # Tests 必須 hermetic：忽略本機 .env（否則開發者的 .env 會覆蓋下方 sqlite 預設），
+    # 只吃 conftest.py 於 import 前設定的 os.environ（APP_ENV / 各 secret）。
+    model_config = SettingsConfigDict(
+        env_file=None, env_file_encoding="utf-8", case_sensitive=False, extra="ignore"
+    )
+
     # app
     app_debug: bool = True
 

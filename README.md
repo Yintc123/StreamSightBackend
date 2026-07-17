@@ -9,7 +9,7 @@
 ## 特色
 
 - **分層架構** — API → Services → Repositories → Models，職責清晰、易於測試。
-- **全非同步** — Uvicorn + FastAPI + SQLAlchemy 2.x (async) + asyncpg / aiosqlite。
+- **全非同步** — Uvicorn + FastAPI + SQLAlchemy 2.x (async) + asyncmy / aiosqlite。
 - **JWT 認證** — OAuth2 Bearer token，Argon2id 密碼雜湊（透過 threadpool 卸載，不阻塞 event loop）。
 - **多身分設計** — `User` 與 `Identity` 分離，一位使用者可綁定多種登入方式（password / OAuth）。
 - **欄位級加密** — `User.email` 以 AES-256 加密儲存（deterministic，可建索引與唯一鍵）。
@@ -30,7 +30,7 @@
 | 資料驗證 | Pydantic v2 / pydantic-settings |
 | ORM | SQLAlchemy 2.x (async) |
 | Migration | Alembic |
-| 資料庫 | PostgreSQL (asyncpg) — 測試時自動改用 SQLite in-memory (aiosqlite) |
+| 資料庫 | MariaDB (asyncmy) — 測試時自動改用 SQLite in-memory (aiosqlite) |
 | 快取 | Redis (redis-py + hiredis) |
 | 認證 | PyJWT / argon2-cffi |
 | 加密 | cryptography (AES-256) |
@@ -64,7 +64,7 @@ app/
 alembic/                    # 資料庫 migration
 tests/                      # unit / integration 測試
 docs/                       # specs/（功能規格書）＋ decisions/（設計決策與主題筆記）
-docker-compose.yml          # 本機 PostgreSQL + Redis
+docker-compose.yml          # 本機 MariaDB + Redis（standalone；canonical 為 /infra）
 ```
 
 ---
@@ -75,7 +75,7 @@ docker-compose.yml          # 本機 PostgreSQL + Redis
 
 - Python 3.13+
 - [uv](https://github.com/astral-sh/uv)（套件管理）
-- Docker + Docker Compose（本機啟動 PostgreSQL 與 Redis）
+- Docker + Docker Compose（本機啟動 MariaDB 與 Redis）
 
 ### 1. 安裝依賴
 
@@ -98,8 +98,16 @@ cp .env.example .env
 
 ### 3. 啟動本機依賴服務
 
+canonical 基礎設施為 StreamSight infra（提供 MariaDB + Redis）：
+
 ```bash
-docker compose up -d       # 啟動 PostgreSQL (5432) 與 Redis (6379)
+docker compose -f ../infra/docker-compose.yml up -d   # MariaDB (3306) + Redis (6379)
+```
+
+或使用本專案 standalone 的 compose（服務與 infra 對齊，勿與 infra 同時啟動）：
+
+```bash
+docker compose up -d       # 啟動 MariaDB (3306) 與 Redis (6379)
 ```
 
 ### 4. 執行資料庫 migration
@@ -127,10 +135,10 @@ uv run uvicorn app.main:app --reload
 | 變數 | 說明 | 範例／預設 |
 |------|------|-----------|
 | `APP_ENV` | 執行環境：`local` / `development` / `production` / `test` | `local` |
-| `DB_DIALECT` | 資料庫 dialect + driver | `postgresql+asyncpg` |
-| `DB_HOST` / `DB_PORT` | 資料庫位置 | `localhost` / `5432` |
-| `DB_USER` / `DB_PASSWORD` | 資料庫帳密 | `postgres` / — |
-| `DB_NAME` | 資料庫名稱 | `fastapi_template_local` |
+| `DB_DIALECT` | 資料庫 dialect + driver | `mysql+asyncmy` |
+| `DB_HOST` / `DB_PORT` | 資料庫位置 | `localhost` / `3306` |
+| `DB_USER` / `DB_PASSWORD` | 資料庫帳密 | `streamsight` / `streamsight` |
+| `DB_NAME` | 資料庫名稱 | `streamsight` |
 | `REDIS_HOST` / `REDIS_PORT` | Redis 位置 | `localhost` / `6379` |
 | `REDIS_USERNAME` / `REDIS_PASSWORD` | Redis 認證（留空＝不啟用） | — |
 | `REDIS_DB` | Redis DB index | `0` |
@@ -138,8 +146,11 @@ uv run uvicorn app.main:app --reload
 | `JWT_SECRET_KEY` | JWT 簽章密鑰（≥32 字元） | — |
 | `JWT_ALGORITHM` | JWT 演算法 | `HS256` |
 | `JWT_ACCESS_TOKEN_EXPIRY_SECONDS` | access token 有效期（秒，上限 24 小時） | `1800` |
+| `REFRESH_TOKEN_HASH_SECRET` | refresh token 雜湊 pepper（HMAC-SHA256，≥32 字元） | — |
+| `REFRESH_TOKEN_EXPIRE_SECONDS` | refresh token 效期（秒，上限 90 天） | `1209600` |
+| `REFRESH_TOKEN_REUSE_GRACE_SECONDS` | reuse 誤判緩解視窗（秒） | `10` |
 
-> 測試環境 (`APP_ENV=test`) 會自動改用 SQLite in-memory，無需啟動 PostgreSQL。
+> 測試環境 (`APP_ENV=test`) 會自動改用 SQLite in-memory，無需啟動 MariaDB。
 
 ---
 

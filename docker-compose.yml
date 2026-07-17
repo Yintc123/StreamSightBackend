@@ -1,34 +1,38 @@
 # Docker Compose v2 已經不需要 version: 宣告
-# version: "3.9"
+#
+# 注意：本專案的 canonical 本機基礎設施是 /infra/docker-compose.yml
+# （StreamSight infra，提供 MariaDB + Redis）。本檔為 standalone 替代，
+# 服務/憑證與 /infra 對齊（MariaDB）。兩者擇一啟動，勿同時（port 3306/6379 會衝突）。
 
 services:
-  postgres:
-    image: postgres:16-alpine
-    container_name: fastapi_template_postgres
+  mariadb:
+    image: mariadb:11
+    container_name: fastapi_template_mariadb
     restart: unless-stopped
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
-      POSTGRES_DB: fastapi_template_local
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:-root}
+      MARIADB_DATABASE: ${DB_NAME:-streamsight}
+      MARIADB_USER: ${DB_USER:-streamsight}
+      MARIADB_PASSWORD: ${DB_PASSWORD:-streamsight}
     ports:
-      - "${DB_PORT:-5432}:5432"
+      - "${DB_PORT:-3306}:3306"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - mariadb_data:/var/lib/mysql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 5s
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
       timeout: 5s
       retries: 5
 
   redis:
-    image: redis:7-alpine
+    image: redis:7
     container_name: fastapi_template_redis
     restart: unless-stopped
     ports:
       - "${REDIS_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
-    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:-}"]
+    command: ["redis-server", "--appendonly", "yes"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -36,6 +40,5 @@ services:
       retries: 5
 
 volumes:
-  # postgres_data 用預設 driver（named volume），資料存 Docker 自管的位置
-  postgres_data:
+  mariadb_data:
   redis_data:
