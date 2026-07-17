@@ -1,8 +1,10 @@
 # 規格書：Refresh Token 模組（含 Rotation 機制）
 
-> 狀態：Draft ／ 目標版本：next ／ 開發模式：**嚴格 TDD（見 `CLAUDE.md`）**
+> 狀態：**已實作**（此文記錄模組初版設計；rotation / reuse / grace / family 機制均已落地）／ 開發模式：**嚴格 TDD（見 `CLAUDE.md`）**
 >
 > 📎 關鍵設計決策與取捨（為什麼這樣設計）另記於 [`../decisions/refresh-token-rotation.md`](../decisions/refresh-token-rotation.md)。本文聚焦「怎麼做」（資料模型／介面／流程／測試計畫）。
+>
+> ⚠️ **擁有者模型已被 [`jwt-role-and-admin.md`](./jwt-role-and-admin.md) 取代（讀本文時務必一併參照）**：本文以 **`user_id`（FK→users）** 為 token 擁有者、access token `sub = user.id`。jwt-role 規格把擁有者改為 **`principal_id`（FK→principals，CASCADE）**、`sub = principal_id`，並把 `revoke_all_for_user` → `revoke_all_for_principal`、`_issue_refresh_token(user_id, …)` → `(principal_id, …)`、`logout_all(user_id)` → 吃當前 principal。**本文其餘機制（原子 rotation、reuse+grace、family 連坐、commit-before-raise）不變**；凡本文出現 `user_id` / `sub=user.id` 之處，最終狀態以 jwt-role 為準。
 
 ---
 

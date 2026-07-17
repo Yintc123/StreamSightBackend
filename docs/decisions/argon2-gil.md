@@ -137,50 +137,44 @@ async def register(...):
 
 ## 本專案現況
 
-`app/core/auth/password.py` 封裝了 hash:
+> **已更新（現況已 offload）**:本節早期描述「本專案尚未 offload」已**過時**。`app/core/auth/password.py` 現已把 hash / verify 都包成 **`async` + `asyncio.to_thread`**,`app/services/auth.py` 呼叫端也全數 `await`。以下為現行實作。
+
+`app/core/auth/password.py` 已把封裝改為 async、內部 offload 到 threadpool:
 
 ```python
+import asyncio
+
 _password_hasher: PasswordHasher = PasswordHasher()
 
-def hash_password(plain: str) -> str:
-    return _password_hasher.hash(plain)
+async def hash_password(plain: str) -> str:
+    """Hash a plaintext password using argon2id (offloaded to threadpool)."""
+    return await asyncio.to_thread(_password_hasher.hash, plain)
 
-def verify_password(plain: str, hashed: str) -> bool:
-    try:
-        _password_hasher.verify(hashed, plain)
-        return True
-    except VerifyMismatchError:
-        return False
+async def verify_password(plain: str, hashed: str) -> bool:
+    def _verify() -> bool:
+        try:
+            _password_hasher.verify(hashed, plain)
+            return True
+        except VerifyMismatchError:
+            return False
+    return await asyncio.to_thread(_verify)
 ```
 
-目前 `app/services/auth.py` 是在 **async 方法裡直接呼叫**,**沒有** offload:
+`app/services/auth.py` 的呼叫端已全數 `await`(offload 生效):
 
 ```python
 async def register(self, payload: RegisterRequest) -> TokenPayload:
-    password_hash: str = hash_password(payload.password)  # 直接呼叫,阻塞 loop
+    password_hash: str = await hash_password(payload.password)   # ✅ offload 到 worker thread
     ...
 
 async def login(self, payload: LoginRequest) -> TokenPayload:
-    if user is None or not verify_password(payload.password, user.password_hash):
-        ...                                               # 同樣直接呼叫
+    if identity is None or not await verify_password(payload.password, identity.credential):
+        ...                                                       # ✅ 同樣 offload
 ```
 
-**影響評估:**
-- 這在低流量 / 開發階段沒問題——單次幾十~上百 ms,體感不明顯。
-- 但在高併發下,每次 register / login 都會**凍結 event loop** 那段 hash 時間,拖累同時進來的其他 request。
-- 因為 `register` / `login` 是 `async def`,**不會**享受到 FastAPI 對同步 handler 的自動 threadpool 保護。
-
-**若要修正**,把兩處包成 `await asyncio.to_thread(...)`:
-
-```python
-password_hash = await asyncio.to_thread(hash_password, payload.password)
-# ...
-ok = await asyncio.to_thread(verify_password, payload.password, user.password_hash)
-if user is None or not ok:
-    ...
-```
-
-這樣就同時滿足「offload 到 thread」+「Argon2 放 GIL」,把單一請求的雜湊延遲從「全站凍結」降級為「只有該請求自己等」。
+**現況評估:**
+- 「offload 到 thread」+「Argon2 放 GIL」兩條件**皆已成立**——單一請求的雜湊延遲只會讓「該請求自己等」,不再凍結 event loop、高併發下多核可真正平行。
+- 密碼登入的 hash 存於 `identities.credential`(password provider),非 `user.password_hash`;**CMS admin**(見 [`jwt-role-and-admin.md`](./jwt-role-and-admin.md))則自帶 `admins.password_hash`,登入時**複用同一組 `verify_password`**,自動享有 offload,無需另行處理。
 
 ---
 

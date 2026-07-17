@@ -255,10 +255,12 @@ CI（GitHub Actions，`.github/workflows/ci.yml`）會在 push / PR 時執行 ru
 **規格書（`docs/specs/`）**
 
 - `refresh-token-rotation.md` — Refresh Token 模組（含 rotation / reuse detection）規格
+- `jwt-role-and-admin.md` — JWT role 機制與 Admin（CMS）角色規格
 
 **設計決策與主題筆記（`docs/decisions/`）**
 
 - `refresh-token-rotation.md` — Refresh Token 的關鍵設計決策與取捨
+- `jwt-role-and-admin.md` — JWT role / Admin 角色的關鍵設計決策與取捨
 - `jwt-auth-fastapi-vs-flask.md` — JWT 認證流程與 FastAPI/Flask 差異
 - `argon2-gil.md` — Argon2 密碼雜湊與 GIL/threadpool 考量
 - `salt-and-iv.md` — 加密的 salt 與 IV

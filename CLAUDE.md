@@ -2,6 +2,8 @@
 
 本檔案為 Claude Code 在此 repo 工作時的指引。**所有開發一律嚴格遵守 TDD（測試驅動開發）。**
 
+> **語言**：一律用繁體中文回答。
+
 ## 專案概觀
 
 FastAPI 非同步後端範本（StreamSight Backend）。分層架構：**API → Services → Repositories → Models**，搭配 JWT 認證、Argon2 密碼雜湊、AES-256 欄位級加密、多身分（User / Identity）設計、Redis 快取。
