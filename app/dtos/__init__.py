@@ -1,4 +1,5 @@
 from .auth import (
+    AdminLoginRequest,
     CurrentPrincipal,
     LoginRequest,
     RefreshRequest,
@@ -8,6 +9,7 @@ from .auth import (
 from .user import UserBase, UserCreate, UserUpdate
 
 __all__ = [
+    "AdminLoginRequest",
     "CurrentPrincipal",
     "UserBase",
     "UserCreate",

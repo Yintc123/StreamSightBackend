@@ -31,8 +31,10 @@ def _sign_no_role(sub: int) -> str:
     )
 
 
-async def _seed_admin(db_session: AsyncSession, email: str = "cms@example.com") -> Admin:
-    return await AdminService(db_session).create(email=email, name="CMS", password="longpassword")
+async def _seed_admin(db_session: AsyncSession, username: str = "cms") -> Admin:
+    return await AdminService(db_session).create(
+        username=username, name="CMS", password="longpassword"
+    )
 
 
 async def _register_user(db_session: AsyncSession, email: str = "u@example.com") -> User:
@@ -72,8 +74,8 @@ async def test_get_admin_from_token_rejects_user_role(db_session: AsyncSession) 
 
 async def test_get_admin_from_token_inactive_raises(db_session: AsyncSession) -> None:
     admin = await _seed_admin(db_session)
-    admin.is_active = False
-    await db_session.commit()
+    # is_active 為計算屬性（archived_at/deleted_at 皆 NULL 才 True）→ 封存使其失效
+    await AdminService(db_session).archive(admin.id)
     token = create_access_token(admin.principal_id, Role.ADMIN)
 
     with pytest.raises(UnauthorizedError):

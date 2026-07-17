@@ -414,7 +414,7 @@ class Admin(Base):
 
 ### 8.2 Unit — AdminService（`tests/unit/services/test_admin_service.py`）
 - `create(username, name, password)`：建 principal(role=1)+admin；username 正規化為小寫儲存；重複 username（含大小寫變體）→ `ConflictError`，且**不留孤兒 principal**。
-- **`create` 格式驗證**：含空白／大寫符號／`@`／過短（<3）等不合 `_USERNAME_RE` → `ValidationError`，不建立任何列。
+- **`create` 格式驗證**：驗**正規化後**（strip+lower）的值——內部空白／`@`／`/` 等非法字元或過短（<3）不合 `_USERNAME_RE` → **`BadRequestError`**（400，service 層業務規則的域例外，**非** pydantic `ValidationError`；與 §5.3 一致），不建立任何列。⚠️ 純大小寫或前後空白會先被正規化（`Root`→`root`、` root `→`root`）故**不算**格式錯誤，勿誤列為無效案例。
 - **`create` 的 admin_role 預設**：不傳 `admin_role` → 建出的 admin `admin_role == AdminRole.VIEWER`（fail-safe）；明確傳 `AdminRole.SUPER_ADMIN` → 如實儲存。
 - `get`：預設對軟刪除者拋 `NotFoundError`；`include_deleted=True` 可取回。
 - **`archive`**：設 `archived_at`、`is_active` 轉 False、該 admin 的 refresh token 全撤；再 `archive` idempotent。傳 `actor_principal_id` → `archived_by` 記錄之；不傳 → NULL。
@@ -465,7 +465,7 @@ class Admin(Base):
 - ✅ **`is_active` 由實體欄位改為計算屬性**（`archived_at`/`deleted_at` 皆 NULL 才 True），使登入／refresh／授權的既有 `not child.is_active` 判斷**零改動**即涵蓋封存與軟刪除。**User 的 `is_active` 實體欄位不動**。
 - ✅ **`delete` 改為軟刪除**（設 `deleted_at`，不刪 principals、不 CASCADE）；新增 `archive`/`unarchive`/`restore`（狀態機對稱）；封存與軟刪除都**撤銷該 principal 的 refresh token**（access token 沿用 ≤30 分殘留窗口取捨）。
 - ✅ Admin 登入改 **`AdminLoginRequest`（username + password，DTO validator 正規化）**，與 user 的 `LoginRequest`（email）區隔。
-- ✅ **正規化單一入口 `normalize_username`**（`app/core/security.py`），DTO／service／seed 共用；**格式 `^[a-z0-9._-]{3,100}$` 只在建立路徑強制**（登入只正規化，格式不符 → 統一 401 不 422）。
+- ✅ **正規化單一入口 `normalize_username`**（`app/core/security.py`），DTO／service／seed 共用；**格式 `^[a-z0-9._-]{3,100}$` 只在建立路徑強制**（登入只正規化，格式不符 → 統一 401 不 422）。`create` 格式違規拋 **`BadRequestError`（400）**——service 層一律拋域例外，不手造 pydantic `ValidationError`（§5.3；§8.2 測試計畫原誤植為 `ValidationError`，已對齊修正）。
 - ✅ 軟刪除者 **username 永久保留**（本專案不做 purge；部分索引不可攜、組合唯一對 NULL 不強制、改名損稽核 → 皆劣，見 §2.6）。
 - ✅ **Migration 就地修訂原始 `c3d4e5f6a7b8`**（該表未部署 → 不製造 add-then-remove 髒歷史；「migration 不可變」只適用已部署 revision，見 §3.2）。
 - ✅ **AdminResponse ＝ `id/username/name/admin_role`**（`/admin/me` 曝露自身等級供前端渲染；為權威來源）；狀態時間戳留給未來 `AdminSummary`（管理列表）。

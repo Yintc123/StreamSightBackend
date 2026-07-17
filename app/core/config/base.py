@@ -95,8 +95,12 @@ class BaseAppSettings(BaseSettings):
     )
 
     # 初始 CMS admin（供 seed script 建立；app runtime 非必要，空值時 seed script 報錯）
-    initial_admin_email: str = Field(
-        default="", description="Initial CMS admin email (seed script only)"
+    initial_admin_username: str = Field(
+        default="", description="Initial CMS admin username (seed script only)"
+    )
+    initial_admin_name: str = Field(
+        default="",
+        description="Initial CMS admin display name (seed script only; empty → 用 username)",
     )
     initial_admin_password: SecretStr = Field(
         default=SecretStr(""), description="Initial CMS admin password (seed script only)"

@@ -16,6 +16,11 @@ from argon2.exceptions import VerifyMismatchError
 
 _password_hasher: PasswordHasher = PasswordHasher()
 
+# 常數時間登入用的 dummy hash：帳號不存在時仍對它跑一次 argon2，拉平「存在 vs 不存在」
+# 的回應時間、杜絕帳號列舉時序側通道（見 admin-account-refinement.md §5.4/§7）。
+# ⚠️ module 頂層不能 await → 用同步的 _password_hasher.hash 算一次。
+_DUMMY_PASSWORD_HASH: str = _password_hasher.hash("dummy-for-constant-time")
+
 
 async def hash_password(plain: str) -> str:
     """Hash a plaintext password using argon2id (offloaded to threadpool)."""
@@ -33,3 +38,13 @@ async def verify_password(plain: str, hashed: str) -> bool:
             return False
 
     return await asyncio.to_thread(_verify)
+
+
+async def verify_password_or_dummy(stored_hash: str | None, plain: str) -> bool:
+    """帳號存在→驗真 hash；不存在→驗 dummy（必 False），拉平時序、防列舉。
+
+    共用 primitive（非塞進 admin_login），讓 user 端日後一行接上（見 §5.4）。
+    """
+    return await verify_password(
+        plain, stored_hash if stored_hash is not None else _DUMMY_PASSWORD_HASH
+    )

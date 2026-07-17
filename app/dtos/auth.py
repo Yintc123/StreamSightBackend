@@ -9,9 +9,10 @@ Auth domain DTOs - framework-agnostic (no FastAPI / SQLAlchemy imports).
 
 from dataclasses import dataclass
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from app.core.enums import Role
+from app.core.security import normalize_username
 
 from .user import UserBase
 
@@ -45,6 +46,22 @@ class LoginRequest(BaseModel):
 
     email: EmailStr = Field(description="User email address")
     password: str = Field(description="Plain password")
+
+
+class AdminLoginRequest(BaseModel):
+    """Payload for POST /admin/auth/login。
+
+    必須獨立於 LoginRequest（其 email 型別為 EmailStr，會擋掉非 email 的 username）。
+    於 DTO 邊界就正規化（單一入口，見 §2.1）；登入只正規化、不硬驗格式（§5.4）。
+    """
+
+    username: str = Field(min_length=1, max_length=100, description="Admin username")
+    password: str = Field(description="Plain password")
+
+    @field_validator("username")
+    @classmethod
+    def _normalize(cls, v: str) -> str:
+        return normalize_username(v)  # strip + lower
 
 
 class RefreshRequest(BaseModel):

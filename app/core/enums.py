@@ -1,6 +1,18 @@
 from enum import IntEnum, StrEnum
 
 
+class AdminRole(StrEnum):
+    """Admin 型別內的權限等級（有序階梯，高→低）。存於 admins.admin_role。
+
+    僅為權限等級，與 principals 的型別判別子 Role（USER/ADMIN）不同層次。
+    授權階梯（require_min_admin_role）與 grade claim 見 docs/specs/rbac.md。
+    """
+
+    SUPER_ADMIN = "super_admin"  # 全權，含管理其他 admin
+    EDITOR = "editor"  # 內容編輯
+    VIEWER = "viewer"  # 唯讀（最低權限，建立預設）
+
+
 class Role(IntEnum):
     """Principal 型別判別子（account type discriminator）。
 

@@ -29,6 +29,7 @@ from app.api.dependencies import get_redis, get_session
 from app.app import create_app
 from app.core.config import BaseAppSettings, get_app_settings
 from app.core.db import Base
+from app.core.enums import AdminRole
 from app.core.redis import RedisCache
 from app.dtos import UserCreate, UserUpdate
 from app.models.admin import Admin
@@ -37,7 +38,7 @@ from app.services import AdminService, UserService
 from tests.payloads import user_payload
 
 # 測試用初始 admin 憑證（僅測試，不用於真實資料）
-ADMIN_EMAIL: str = "admin@example.com"
+ADMIN_USERNAME: str = "root"
 ADMIN_PASSWORD: str = "admin-longpassword"
 
 
@@ -175,9 +176,17 @@ async def inactive_user(db_session: AsyncSession, alice: User) -> User:
 
 @pytest.fixture
 async def admin(db_session: AsyncSession) -> Admin:
-    """Pre-created CMS admin (role=1) via AdminService (seed-equivalent)."""
+    """Pre-created CMS admin (role=1) via AdminService (seed-equivalent).
+
+    測試用 root admin 給最高權限（貼近 seed 且不擋未來 rbac 授權測試，見 §8 遷移清單）。
+    """
     service: AdminService = AdminService(db_session)
-    return await service.create(email=ADMIN_EMAIL, name="Root", password=ADMIN_PASSWORD)
+    return await service.create(
+        username=ADMIN_USERNAME,
+        name="Root",
+        password=ADMIN_PASSWORD,
+        admin_role=AdminRole.SUPER_ADMIN,
+    )
 
 
 # ────────────────────────────────────────────────

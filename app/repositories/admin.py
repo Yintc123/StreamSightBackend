@@ -11,9 +11,12 @@ class AdminRepository(BaseRepository[Admin]):
 
     model: type[Admin] = Admin
 
-    async def get_by_email(self, email: str) -> Admin | None:
-        """Fetch an admin by email（deterministic encryption → 明文比對命中密文）。"""
-        stmt: Select[tuple[Admin]] = select(Admin).where(Admin.email == email)
+    async def get_by_username(self, username: str) -> Admin | None:
+        """Fetch an admin by username（非加密明文唯一索引，直接比對）。
+
+        回原列（含已封存／軟刪除者），可用性由呼叫端讀 is_active 計算屬性判定（見 §5.2）。
+        """
+        stmt: Select[tuple[Admin]] = select(Admin).where(Admin.username == username)
         result: Result[tuple[Admin]] = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 

@@ -29,12 +29,14 @@ from app.core.auth import (
     hash_password,
     hash_refresh_token,
     verify_password,
+    verify_password_or_dummy,
 )
 from app.core.config import get_app_settings
 from app.core.enums import Role
 from app.core.exceptions import ForbiddenError, UnauthorizedError
 from app.core.security import mask_email
 from app.dtos import (
+    AdminLoginRequest,
     CurrentPrincipal,
     LoginRequest,
     RefreshRequest,
@@ -172,26 +174,29 @@ class AuthService:
         logger.info("Login success user id=%s email=%s", user.id, mask_email(user.email or ""))
         return TokenPayload(access_token=access_token, refresh_token=refresh_token)
 
-    async def admin_login(self, payload: LoginRequest) -> TokenPayload:
-        """Verify admin email + password → role 1 access + refresh token.
+    async def admin_login(self, payload: AdminLoginRequest) -> TokenPayload:
+        """Verify admin username + password → role 1 access + refresh token.
 
-        共用 `_issue_refresh_token`（角色無關發放）；沿用統一模糊訊息防列舉。停用 admin 不發 token。
+        共用 `_issue_refresh_token`（角色無關發放）；沿用統一模糊訊息防列舉。封存／軟刪除的
+        admin 不發 token（讀 is_active 計算屬性）。常數時間 verify 防帳號列舉時序側通道（§5.4）。
 
         Raises:
-            UnauthorizedError: email 不存在、密碼錯、或帳號停用（統一訊息）
+            UnauthorizedError: username 不存在、密碼錯、或帳號封存／軟刪除（統一訊息）
         """
-        admin: Admin | None = await self.admin_repo.get_by_email(payload.email)
-        # 統一錯誤訊息防 enumeration：不存在也走 verify（此處 admin 不存在直接統一回覆）
-        if admin is None or not await verify_password(payload.password, admin.password_hash):
-            raise UnauthorizedError("Invalid email or password")
-        if not admin.is_active:
-            raise UnauthorizedError("Invalid email or password")
+        # DTO 已正規化 username（strip + lower）
+        admin: Admin | None = await self.admin_repo.get_by_username(payload.username)
+        # 常數時間：無論帳號是否存在都跑一次 argon2（None → 對 dummy hash），拉平時序防列舉。
+        password_ok: bool = await verify_password_or_dummy(
+            admin.password_hash if admin else None, payload.password
+        )
+        if admin is None or not password_ok or not admin.is_active:
+            raise UnauthorizedError("Invalid username or password")
 
         access_token: str = create_access_token(admin.principal_id, Role.ADMIN)
         refresh_token, _ = await self._issue_refresh_token(admin.principal_id, str(uuid4()))
         await self.session.commit()
 
-        logger.info("Admin login success id=%s email=%s", admin.id, mask_email(admin.email))
+        logger.info("Admin login success id=%s username=%s", admin.id, admin.username)
         return TokenPayload(access_token=access_token, refresh_token=refresh_token)
 
     async def refresh(self, payload: RefreshRequest) -> TokenPayload:

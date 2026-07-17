@@ -5,6 +5,16 @@ and business logic use raw values.
 """
 
 
+def normalize_username(raw: str) -> str:
+    """Admin username 正規化（單一事實來源）：strip + lower。
+
+    由 DTO validator（AdminLoginRequest）、AdminService.create、seed 共用，
+    確保 `Admin`/`admin`/` admin ` 都收斂為同一登入識別、唯一約束一致。
+    見 docs/specs/admin-account-refinement.md §2.1。
+    """
+    return raw.strip().lower()
+
+
 def mask_email(email: str) -> str:
     """
     Mask email address for safe logging.

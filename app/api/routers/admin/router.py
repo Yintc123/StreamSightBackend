@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends
 from app.api.dependencies import get_auth_service, get_current_admin
 from app.api.routers.auth.schemas import TokenResponse
 from app.core.config import get_app_settings
-from app.dtos import LoginRequest, TokenPayload
+from app.dtos import AdminLoginRequest, TokenPayload
 from app.models import Admin
 from app.services import AuthService
 
@@ -22,7 +22,7 @@ def _to_token_response(token: TokenPayload) -> TokenResponse:
 
 @router.post("/auth/login", response_model=TokenResponse)
 async def admin_login(
-    payload: LoginRequest,
+    payload: AdminLoginRequest,
     service: AuthService = Depends(get_auth_service),
 ) -> TokenResponse:
     """Verify admin credentials and return a role=1 access + refresh token."""

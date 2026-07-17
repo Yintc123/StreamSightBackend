@@ -70,7 +70,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Downgrade schema."""
-    op.drop_index("ix_refresh_tokens_family_id", table_name="refresh_tokens")
-    op.drop_index("ix_refresh_tokens_user_id", table_name="refresh_tokens")
-    op.drop_index("ix_refresh_tokens_token_hash", table_name="refresh_tokens")
+    # drop_table 會一併移除該表自身的 index 與 FK（三方言皆然）；不先 drop_index。
+    # ⚠️ MariaDB/InnoDB 下，ix_refresh_tokens_user_id 是 user_id FK 的 backing index，
+    # 若先 drop_index 會報 (1553, "... needed in a foreign key constraint")。直接 drop_table 最單純可靠。
     op.drop_table("refresh_tokens")

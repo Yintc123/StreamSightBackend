@@ -74,8 +74,11 @@ def downgrade() -> None:
         "UPDATE refresh_tokens SET user_id = "
         "(SELECT u.id FROM users u WHERE u.principal_id = refresh_tokens.principal_id)"
     )
-    op.drop_index("ix_refresh_tokens_principal_id", table_name="refresh_tokens")
+    # ⚠️ 先 drop FK 再 drop index：MariaDB/InnoDB 要求 FK 必有可用的 backing index，
+    # 若先 drop index 會報 (1553, "Cannot drop index ... needed in a foreign key constraint")。
+    # 順序須與 upgrade() 拆 user_id 時一致（先 FK 後 index）。
     op.drop_constraint("fk_refresh_tokens_principal", "refresh_tokens", type_="foreignkey")
+    op.drop_index("ix_refresh_tokens_principal_id", table_name="refresh_tokens")
     op.drop_column("refresh_tokens", "principal_id")
     op.alter_column("refresh_tokens", "user_id", existing_type=sa.Integer(), nullable=False)
     op.create_foreign_key(

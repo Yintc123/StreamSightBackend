@@ -1,9 +1,12 @@
 """Unit tests for password hashing helpers (async, via asyncio.to_thread)."""
 
+from unittest.mock import AsyncMock, patch
+
 import pytest
 from argon2.exceptions import InvalidHashError
 
 from app.core.auth import hash_password, verify_password
+from app.core.auth.password import verify_password_or_dummy
 
 my_secret: str = "mysecret"
 
@@ -40,3 +43,22 @@ async def test_verify_invalid_hash_raises() -> None:
     """錯誤的 hash 字串應該 raise InvalidHashError (不是 return False)"""
     with pytest.raises(InvalidHashError):
         await verify_password(my_secret, "not-a-real-hash")
+
+
+# ─────────── verify_password_or_dummy（常數時間、防帳號列舉，§8.3a）───────────
+async def test_verify_or_dummy_none_hash_returns_false_and_runs_argon2() -> None:
+    """stored_hash=None（帳號不存在）→ 對 dummy hash 驗，必 False，且實際跑過一次 argon2。"""
+    with patch(
+        "app.core.auth.password.verify_password",
+        new=AsyncMock(return_value=False),
+    ) as spy:
+        result = await verify_password_or_dummy(None, "whatever")
+
+    assert result is False
+    spy.assert_awaited_once()  # 有實際呼叫 verify（拉平時序）
+
+
+async def test_verify_or_dummy_real_hash_verifies_truthfully() -> None:
+    hashed: str = await hash_password(my_secret)
+    assert await verify_password_or_dummy(hashed, my_secret) is True
+    assert await verify_password_or_dummy(hashed, "wrong") is False
