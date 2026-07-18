@@ -119,6 +119,33 @@ async def test_infra_only_start_ms(
     assert len(resp.json()["snapshots"]) == 1
 
 
+async def test_infra_only_end_ms(
+    client: AsyncClient, admin: Admin, fake_redis: redis.Redis
+) -> None:
+    """僅帶 end_ms，不帶 start_ms → 查詢範圍為 [end_ms - default_ms, end_ms]（§2.4 第 3 情境）。"""
+    settings = get_app_settings()
+    default_ms = settings.monitoring_infra_default_query_hours * 3_600_000
+    now_ms = int(time.time() * 1000)
+    end_ms = now_ms - 2000  # 查詢截止點設在 2 秒前
+
+    ts_in = end_ms - 1000  # 在查詢窗內（end_ms 前 1 秒）
+    ts_out = end_ms + 60_000  # 超出 end_ms → 不應回傳
+    ts_too_old = end_ms - default_ms - 60_000  # 超出 [end_ms - default_ms] 下界 → 不應回傳
+    for ts in [ts_in, ts_out, ts_too_old]:
+        await fake_redis.zadd(REDIS_KEY, {_make_snapshot(ts): ts})
+
+    token = await _admin_token(client)
+    resp = await client.get(
+        "/admin/monitoring/infra",
+        params={"end_ms": end_ms},
+        headers=_auth(token),
+    )
+    assert resp.status_code == status.HTTP_200_OK
+    snapshots = resp.json()["snapshots"]
+    assert len(snapshots) == 1
+    assert snapshots[0]["ts"] == ts_in
+
+
 async def test_infra_no_params_returns_default_range(
     client: AsyncClient, admin: Admin, fake_redis: redis.Redis
 ) -> None:

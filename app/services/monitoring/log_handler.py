@@ -67,10 +67,10 @@ async def run_log_flusher(
             except asyncio.QueueEmpty:
                 break
 
-        for item in batch:
+        if batch:
+            entries = [{k: v for k, v in item.items() if v is not None} for item in batch]
             try:
-                entry = {k: v for k, v in item.items() if v is not None}
-                await store.append(stream, entry, maxlen=maxlen)
+                await store.append_many(stream, entries, maxlen=maxlen)
             except Exception:
                 _logger.warning("monitoring log flush failed", exc_info=True)
 

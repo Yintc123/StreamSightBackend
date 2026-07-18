@@ -1,6 +1,6 @@
 # 規格書：Monitoring 模組（Admin 監控：日誌查詢／DB 狀態／歷史查詢）
 
-> 狀態：**Draft（設計，待實作）** ／ 目標版本：next+4 ／ 開發模式：**嚴格 TDD（見 `CLAUDE.md`）**
+> 狀態：**已實作（✅ 529 tests 全綠，ruff / pyright 通過）** ／ 目標版本：next+4 ／ 開發模式：**嚴格 TDD（見 `CLAUDE.md`）**
 >
 > **語言**：繁體中文。
 >
@@ -359,10 +359,10 @@ DB 狀態採樣（多實例單 leader）：
 - `RedisStreamStore.append_many` → 批次寫入 N 筆、回傳長度為 N 的 id list；寫入效果與 N 次 `append` 相同；超過 `maxlen` 同樣觸發修剪。
 - `query` 依 `since/until` 對應 ID 區間取回；`cursor` 續頁不重不漏；空區間回空 + `next_cursor=None`。
 
-### 7.2 日誌擷取（unit）
+### 7.2 日誌擷取（unit）✅
 - `RedisStreamLogHandler.emit` → 佇列增一；**佇列滿 → 丟最舊、不拋例外、不阻塞**（best-effort）。
-- `run_log_flusher` 一輪（batch 有 N 筆）→ 呼叫一次 `store.append_many`（而非 N 次 `store.append`）；遮罩 filter 生效（email 已遮）。
-- flush 遇 Redis 例外 → 整批 log warning、佇列清空（不重放）、循環不中斷（all-or-nothing 符合 best-effort 語意）。
+- `run_log_flusher` 一輪（batch 有 N 筆）→ 只呼叫**一次** `store.append_many`（pipeline N→1 round-trip），驗 spy 計數 == 1（非 N 次 `append`）；遮罩 filter 生效。
+- flush 遇 Store 例外 → 整批 log warning、循環不中斷（all-or-nothing 符合 best-effort 語意）；patch `store.append_many` 驗不拋。
 
 ### 7.3 日誌查詢（integration）
 - `GET /admin/monitoring/logs`：非 admin → 401/403；admin → 200 + `items`/`next_cursor`。

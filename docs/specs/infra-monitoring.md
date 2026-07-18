@@ -1,6 +1,6 @@
 # 規格書：Infra Monitoring 模組（基礎設施指標採集）
 
-> 狀態：**Draft（設計，待實作）** ／ 目標版本：next ／ 開發模式：**嚴格 TDD（見 `CLAUDE.md`）**
+> 狀態：**已實作（✅ 529 tests 全綠，ruff / pyright 通過）** ／ 目標版本：next ／ 開發模式：**嚴格 TDD（見 `CLAUDE.md`）**
 >
 > **語言**：繁體中文。
 >
@@ -518,7 +518,9 @@ async def get_infra(
 - 連續兩次 `_tick()`（probe 正常）→ 第二筆的 `cpu_percent` 不為 null（前次快照存在）。
 - 第一次 `_tick()` → 第一筆的 `cpu_percent` 為 null、`disk_read_iops` 為 null。
 
-### 6.4 `GET /admin/monitoring/infra`（integration）
+### 6.4 `GET /admin/monitoring/infra`（integration）✅
+
+四種時間範圍情境（對應 §2.4）全部覆蓋：
 
 - 非 admin（無 token）→ 401。
 - Redis Sorted Set 有 3 筆（ts 分別為 t1 < t2 < t3）→ 200，`snapshots` 長度 3，且 `ts` 由小到大（由舊到新）。
@@ -526,9 +528,10 @@ async def get_infra(
 - Redis 不可用 → 503。
 - `start_ms >= end_ms` → 400。
 - `end_ms - start_ms > retention_hours * 3_600_000` → 400。
-- 帶 `start_ms` / `end_ms` 查詢：只有 ts 落在 `[start_ms, end_ms]` 範圍內的筆回傳（範圍外的筆不出現）。
-- 僅帶 `start_ms`，不帶 `end_ms`：回傳 start_ms 至當下時間的資料（不報錯）。
-- 兩者皆不帶：回傳預設 1 小時範圍的資料（不報錯）。
+- 兩者皆提供（`start_ms` + `end_ms`）：只有 ts 落在 `[start_ms, end_ms]` 範圍內的筆回傳。
+- 僅帶 `start_ms`，不帶 `end_ms`：回傳 `[start_ms, now]` 的資料（不報錯）。
+- 僅帶 `end_ms`，不帶 `start_ms`：查詢範圍為 `[end_ms - default_ms, end_ms]`，超出下界與上界的筆均不回傳（不報錯）。
+- 兩者皆不帶：回傳預設 1 小時範圍（`[now - default_ms, now]`）的資料（不報錯）。
 
 ---
 

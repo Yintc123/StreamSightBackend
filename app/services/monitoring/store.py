@@ -24,6 +24,12 @@ class TimeSeriesStore(Protocol):
         """寫入一筆，回 entry id（<ms>-<seq>）。"""
         ...
 
+    async def append_many(
+        self, stream: str, entries: list[dict], *, maxlen: int | None = None
+    ) -> list[str]:
+        """批次寫入 N 筆（pipeline transaction=False，N 筆 → 1 round-trip），回 id list。"""
+        ...
+
     async def query(
         self,
         stream: str,
@@ -51,6 +57,23 @@ class RedisStreamStore:
             approximate=bool(maxlen),
         )
         return raw_id.decode() if isinstance(raw_id, bytes) else str(raw_id)
+
+    async def append_many(
+        self, stream: str, entries: list[dict], *, maxlen: int | None = None
+    ) -> list[str]:
+        """批次寫入 N 筆（pipeline transaction=False，N 筆 → 1 round-trip），回 id list。"""
+        if not entries:
+            return []
+        pipe = self._r.pipeline(transaction=False)
+        for entry in entries:
+            pipe.xadd(
+                stream,
+                {k: str(v) for k, v in entry.items()},
+                maxlen=maxlen,
+                approximate=bool(maxlen),
+            )
+        raw_ids = await pipe.execute()
+        return [raw_id.decode() if isinstance(raw_id, bytes) else str(raw_id) for raw_id in raw_ids]
 
     async def query(
         self,

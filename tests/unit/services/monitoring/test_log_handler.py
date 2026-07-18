@@ -73,15 +73,40 @@ async def test_flusher_writes_to_store() -> None:
     assert len(page.items) == 2
 
 
-async def test_flusher_continues_on_store_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    """flush 遇 Store 例外 → 只 log warning，佇列清掉，不中斷（best-effort）。"""
+async def test_flusher_calls_append_many_once_per_batch(monkeypatch: pytest.MonkeyPatch) -> None:
+    """N 筆佇列 → flush 只呼叫一次 append_many（pipeline N→1 round-trip；monitoring.md §2.3）。"""
     queue: asyncio.Queue[dict] = asyncio.Queue(maxsize=100)
     store = RedisStreamStore(fakeredis.aioredis.FakeRedis())
 
-    async def _bad_append(*a: object, **kw: object) -> str:
+    call_count = 0
+    original = store.append_many
+
+    async def _spy(*a: object, **kw: object) -> list[str]:
+        nonlocal call_count
+        call_count += 1
+        return await original(*a, **kw)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(store, "append_many", _spy)
+
+    for i in range(5):
+        queue.put_nowait({"ts": i, "level": "INFO", "logger": "x", "message": f"m{i}"})
+
+    await run_log_flusher(
+        queue, store, stream="monitor:stream:logs", maxlen=1000, batch_size=10, flush_once=True
+    )
+
+    assert call_count == 1  # 5 筆 → 1 次 append_many，非 5 次 append
+
+
+async def test_flusher_continues_on_store_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """flush 遇 Store 例外 → 整批 log warning，不中斷（all-or-nothing，best-effort 語意一致）。"""
+    queue: asyncio.Queue[dict] = asyncio.Queue(maxsize=100)
+    store = RedisStreamStore(fakeredis.aioredis.FakeRedis())
+
+    async def _bad_append_many(*a: object, **kw: object) -> list[str]:
         raise RuntimeError("redis down")
 
-    monkeypatch.setattr(store, "append", _bad_append)
+    monkeypatch.setattr(store, "append_many", _bad_append_many)
 
     queue.put_nowait({"ts": 1, "level": "INFO", "logger": "x", "message": "m"})
 

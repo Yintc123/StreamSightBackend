@@ -67,6 +67,30 @@ async def test_query_since_until_filters_by_id_range(store: RedisStreamStore) ->
     assert all(int(item["_id"].split("-")[0]) <= ms2 for item in page.items)
 
 
+async def test_append_many_writes_n_entries_and_returns_ids(store: RedisStreamStore) -> None:
+    """append_many 一次寫入 N 筆，回 N 個 id（monitoring.md §2.2）。"""
+    entries = [{"n": str(i)} for i in range(3)]
+    ids = await store.append_many("s_many", entries)
+    assert len(ids) == 3
+    assert all("-" in eid for eid in ids)
+    page = await store.query("s_many", limit=100)
+    assert len(page.items) == 3
+
+
+async def test_append_many_empty_returns_empty(store: RedisStreamStore) -> None:
+    """append_many 空 list → 回空 list，不寫入。"""
+    ids = await store.append_many("s_empty", [])
+    assert ids == []
+
+
+async def test_append_many_maxlen_trims_oldest(store: RedisStreamStore) -> None:
+    """append_many 帶 maxlen → 舊資料被修剪（pipeline XADD MAXLEN ~）。"""
+    entries = [{"n": str(i)} for i in range(5)]
+    await store.append_many("s_trim", entries, maxlen=3)
+    page = await store.query("s_trim", limit=100)
+    assert len(page.items) == 3
+
+
 async def test_query_cursor_no_repeat_no_miss(store: RedisStreamStore) -> None:
     for i in range(6):
         await store.append("s5", {"n": str(i)})
