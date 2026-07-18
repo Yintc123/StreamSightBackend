@@ -28,6 +28,7 @@ from app.repositories.admin import AdminListRow, AdminRepository
 from app.repositories.principal import PrincipalRepository
 from app.repositories.refresh_token import RefreshTokenRepository
 from app.services.initial_admin import INITIAL_ADMIN_PRINCIPAL_ID, is_initial_admin_username
+from app.services.ws.publisher import Publisher
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -42,11 +43,22 @@ class AdminService:
     Transaction Boundary: create / archive / unarchive / delete / restore 各持有唯一一次 commit。
     """
 
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(self, session: AsyncSession, publisher: Publisher | None = None) -> None:
         self.session: AsyncSession = session
         self.repo: AdminRepository = AdminRepository(session)
         self.principal_repo: PrincipalRepository = PrincipalRepository(session)
         self.refresh_repo: RefreshTokenRepository = RefreshTokenRepository(session)
+        # 撤權時即時斷 WS（best-effort kick；可靠性由 WS 定期複查兜底，websocket §2.5）。
+        self.publisher: Publisher | None = publisher
+
+    async def _kick_principal(self, principal_id: int) -> None:
+        """best-effort：發佈 Redis kick 斷該 principal 全部 WS。失敗不影響已提交的撤權動作。"""
+        if self.publisher is None:
+            return
+        try:
+            await self.publisher.disconnect_principal(principal_id)
+        except Exception:
+            logger.warning("WS kick publish failed principal=%s", principal_id, exc_info=True)
 
     async def list_admins(
         self,
@@ -177,6 +189,7 @@ class AdminService:
         now: datetime = datetime.now(UTC)
         await self.refresh_repo.revoke_all_for_principal(admin.principal_id, now)
         await self.session.commit()
+        await self._kick_principal(admin.principal_id)
         logger.info("Admin id=%s changed own password; tokens revoked", admin_id)
 
     async def set_admin_role(
@@ -249,6 +262,7 @@ class AdminService:
         admin.archived_by = actor_principal_id
         await self.refresh_repo.revoke_all_for_principal(admin.principal_id, now)
         await self.session.commit()
+        await self._kick_principal(admin.principal_id)
         logger.info("Archived admin id=%s", admin_id)
         return admin
 
@@ -274,6 +288,7 @@ class AdminService:
         admin.deleted_by = actor_principal_id
         await self.refresh_repo.revoke_all_for_principal(admin.principal_id, now)
         await self.session.commit()
+        await self._kick_principal(admin.principal_id)
         logger.info("Soft-deleted admin id=%s", admin_id)
 
     async def restore(self, admin_id: int) -> Admin:

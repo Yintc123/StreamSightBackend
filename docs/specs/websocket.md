@@ -87,6 +87,7 @@ CMS 需要「伺服器主動把即時資料/事件推給後台前端」的能力
   - **背壓**（§2.8）：慢消費者佇列滿 → `close(1013)`。
   - client 主動關閉／實例重啟（`close(1012)`）。
 - **兜底：定期複查（防 kick 漏掉）**：每 `ws_reauth_interval_seconds`（預設 300s／5 分，進 config）背景檢查該連線 → **`Admin.is_active=False`（被封存/刪除）** 或 **該連線 `sid` 的 refresh family 已無未撤 token（已登出）** → `close(4401)`。這是「授權讀 child 現值」的低成本安全網（admin 連線數少、每 5 分一次查詢可忽略），同時涵蓋**封存/刪除**（改 `is_active`）與**登出**（不改 `is_active`，靠 session 有效性）兩類。
+- **DB session 取得（長連線關鍵）**：WS 端點與定期複查 task **不用 `Depends(get_session)`**——否則 request-scoped session 會綁在整段（無上限）連線壽命上，既佔住連線池（idle-in-transaction），又會與 writer／heartbeat／複查等並發 task 共用單一 `AsyncSession`（**並發不安全**）。改注入 **session 工廠**（`get_session_factory` → `AsyncSessionLocal`），**每個 DB 工作單元（handshake 重載 Admin、每輪複查、可選 subscribe 授權讀現值）各開一個短命 session、用畢即還**；連線閒置（等訊息／心跳）期間**不持有任何 DB connection**。此模式由 WS 專屬 `WsReauthService` 承載（§4），比照 `app/core/db` docstring「非 request 場景自管 session」慣例；既有 HTTP service（`__init__(session)`、多 repo 共享一次 commit）**維持不變** → 兩種 scope 各用對的工具。
 - ticket 機制讓 WS 連線**與 access token TTL 解耦**（token 只用來換 ticket、不在 WS 上）;連線壽命由上述機制治理，**不受 access token 30 分 TTL 限制、也無固定上限**。
 
 ### 2.3 `ConnectionManager`：per-instance 記憶體註冊（D3）
@@ -152,11 +153,13 @@ app/
 │   ├── manager.py                 # ConnectionManager（per-instance 註冊/投遞）
 │   ├── publisher.py               # Publisher（對 principal/topic/broadcast 推播 → Redis）
 │   ├── bridge.py                  # Redis pub/sub 背景訂閱 → 本地投遞 + kick 處理
+│   ├── reauth.py                  # WsReauthService（持 session 工廠；短命 session 讀 is_active + session 有效性，§2.2）
 │   └── protocol.py                # 封套/型別/關閉碼 常數與（de）序列化
 └── dtos/ws.py                     # 訊息封套 Pydantic 模型（跨層）
 ```
 - **API 層**只做握手認證、accept、讀控制訊息、委派給 manager/publisher;**業務推播的觸發**由對應 service（未來各業務）呼叫 `Publisher`。
 - `bridge` 於 app lifespan 啟動背景 task（訂閱 Redis、投遞、處理 kick）;lifespan 關閉時優雅收斂。
+- **lifespan shutdown**：關閉前對本實例全部連線 `manager.close_all(1012)` 優雅斷線（§3.4），再收斂 `bridge`、關 DB/Redis connection。
 
 ### 2.11 前置 JWT 擴充：`sid` claim（本模組驅動，需先於 WS 實作落地）
 
@@ -293,6 +296,8 @@ class ConnectionManager:
     async def send_local(self, *, principal_id: int | None, topic: str | None, message: dict) -> int:
         """投遞給**本實例**符合條件的連線（principal 或 topic 擇一）;回投遞數。有界佇列、慢消費者斷線。"""
     async def kick_local(self, principal_id: int, code: int = 4401) -> None: ...
+    async def close_all(self, code: int = 1012) -> None:
+        """關閉本實例**全部**連線並清理（lifespan shutdown 優雅斷線，§2.2/§3.4）。"""
 
 # services/ws/publisher.py
 class Publisher:
@@ -302,10 +307,22 @@ class Publisher:
     async def disconnect_principal(self, principal_id: int, code: int = 4401) -> None: ...  # 全部 WS → ws:disconnect:principal:{id}
     async def disconnect_session(self, family_id: str, code: int = 4401) -> None: ...       # 僅該 sid → ws:disconnect:sid:{family_id}
 
+# services/ws/reauth.py — 長連線的 DB 存取（§2.2）：持 session 工廠、每次呼叫開短命 session
+class WsReauthService:
+    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None: ...
+    async def is_connection_valid(
+        self, *, principal_id: int, sid: str | None, now: datetime
+    ) -> bool:
+        """開**短命 session** 讀現值（is_active + session 有效性，§2.2）；用畢即還。
+        - principal_id == 0（初始 admin）：合成 super_admin、恆 active；無 sid → 不查 session。
+        - 一般 admin：Admin.is_active 為 False → False；sid 非 None 且該 family 已無 live token → False。
+        兩條件皆通過才回 True（否則呼叫端 close(4401)）。"""
+
 # services/ws/bridge.py — app lifespan 啟動：訂閱 Redis channel → 呼叫 manager.send_local / kick_local
 ```
 
 - **DI／lifespan**：`ConnectionManager` 為 per-process 單例（app.state）;`bridge` 背景 task 於 lifespan 啟停;`Publisher` 由 Redis client 建構，供各業務 service 注入。
+- **DB session（§2.2）**：新增 `get_session_factory()`（回 `AsyncSessionLocal`，與 `get_session` **並存**）＋ provider `get_ws_reauth_service(factory=Depends(get_session_factory))`（**比照 `get_auth_service` 形狀**，見 `api/dependencies/services.py`）。WS 端點以 `Depends(get_ws_reauth_service)` 取得 service，於 accept 時**捕獲一次**交給背景複查 task 反覆用（背景 task 在 request scope 外，`Depends` 只解析一次）。`Connection` 只存 accept 當下快照的**原生值**（`principal_id`／`admin_role`／`sid`／`is_active`），授權現值一律靠複查重讀，**不掛 ORM `Admin` 物件**（避免 detached／陳舊）。
 - **WS 端點**（`api/routers/admin/ws.py`）：認證 → accept → `manager.register` → 迴圈 `receive_json`（控制訊息）→ 斷線時 `manager.unregister`;送出由 per-connection writer task 從佇列取。
 - **前置依賴（repository）**：定期複查（§2.2）驗 session 有效性需 `RefreshTokenRepository.has_live_tokens_in_family(family_id, *, now)`（唯讀 `EXISTS`，排除已撤銷/已過期）——屬 refresh-token 層，見 [`refresh-token-rotation.md`](./refresh-token-rotation.md) §5.2。
 
@@ -412,6 +429,15 @@ async def ws_client(
 
     app.dependency_overrides[get_session] = override_get_session
     app.dependency_overrides[get_redis] = lambda: fake_redis
+
+    # 長連線 session（§2.2/§4）：WS 端點與複查 task 走 get_session_factory，
+    # 測試須 override 成「回一個 yield 共享 db_session 的工廠」，複查才讀得到 fixture。
+    @contextlib.asynccontextmanager
+    async def _shared_session() -> AsyncGenerator[AsyncSession]:
+        yield db_session  # 不 close：交回 db_session fixture 收尾
+
+    app.dependency_overrides[get_session_factory] = lambda: _shared_session
+
     transport = ASGIWebSocketTransport(app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
@@ -435,6 +461,7 @@ async with aconnect_ws(f"http://test/admin/ws?ticket={ticket}&cid=tab-1", ws_cli
 1. **斷線例外可能被 anyio 包成 `ExceptionGroup`** 在 `async with aconnect_ws(...)` 邊界拋出。需一個小 helper 從 group 遞迴挖出 `WebSocketDisconnect.code`（或用 `except*`）——別只 `except WebSocketDisconnect`。
 2. **要讀到 `close(4401)`，server 必須先 `accept()` 再 `close()`**（可先送 `welcome` 再關）。WS application close code（4xxx）只在 upgrade 成功後有效；**accept 前拒絕**在真實瀏覽器是握手層失敗（非 4401 close frame，見 §3.4／§6 對 Origin 與資源上限的「handshake 拒絕」語意）。
 3. **時間相關測試**（心跳 §7.3、複查 §7.3/§7.5）**不要 `sleep`**：把 `ws_ping_interval_seconds`／`ws_missed_pong_limit`／`ws_reauth_interval_seconds` 等（§4.1）以極小值覆寫（monkeypatch settings／清 `get_app_settings` cache），或直接寫入過期 `expires_at`／已撤銷 `revoked_at` 的 `RefreshToken` 列來構造 session 失效——沿用 refresh-token-rotation §8 的既有慣例。
+4. **長連線 session 別用 `Depends(get_session)`**：WS 端點／複查 task 走 `get_session_factory`（§2.2／§4）。測試須**額外 override `get_session_factory`**（如上 fixture）回一個 yield 共享 `db_session` 的工廠；否則複查 task 會開到**另一條 connection**（SQLite in-memory 為另一個 DB）→ 讀不到 fixture、複查測試失真。此為 §7.5 複查斷線測試的必要地基。
 
 ### 7.0 ticket 端點（integration + unit）
 - `POST /admin/ws/ticket`：合法 admin JWT → 200 + `{ticket, expires_in}`;無/壞 JWT／`role=0`／inactive → 401/403（沿用 `get_current_admin`）。
@@ -456,6 +483,7 @@ async with aconnect_ws(f"http://test/admin/ws?ticket={ticket}&cid=tab-1", ws_cli
 - server 送 `ping`;未回 `pong` 逾限 → `close 4000`。
 - 送出佇列填滿（模擬慢消費者）→ `close 1013`。
 - 定期 `is_active` 複查：連線中的 admin 被封存後，於複查週期內 → `close 4401`（無硬性連線上限，改以複查兜底）。
+- **lifespan shutdown**：`manager.close_all(1012)` → 本實例全部連線收到 `close 1012`（Service restart）且索引清空（§2.2/§3.4）。
 
 ### 7.4 跨實例 fan-out（unit，fakeredis）
 - `Publisher.to_topic` → Redis PUBLISH 對應 channel;`bridge` 收到 → `manager.send_local` 投遞（以兩個 manager 模擬兩實例共用一個 fakeredis）。
@@ -489,11 +517,11 @@ async with aconnect_ws(f"http://test/admin/ws?ticket={ticket}&cid=tab-1", ws_cli
    - `RefreshTokenRepository.has_live_tokens_in_family(family_id, *, now)`（定期複查 session 有效性用，§2.2）。**規格已落於** [`refresh-token-rotation.md`](./refresh-token-rotation.md) §5.2／§8.2。
 1. `dtos/ws.py` 封套模型 + `protocol.py` 型別/關閉碼常數 + **`ws_*` config 進 `BaseAppSettings`（§4.1）** + **測試地基：`httpx-ws` 進 dev 依賴、`ws_client` fixture 進 conftest（§7.0-a，spike 已驗證）**（7.6 部分）。
 2. `TicketService`（Redis 簽發 `{principal_id, sid}` + 原子單次 `GETDEL` 消費）+ `POST /admin/ws/ticket` 端點（取 `sid`）（7.0）。
-3. WS 端點 handshake 驗票（`GETDEL` ticket → 重載 Admin：role=1 + active → accept；否則 close 4401）+ `welcome`;連線記 `principal_id` + `sid`（7.1）。
+3. WS 端點 handshake 驗票（`GETDEL` ticket → 重載 Admin：role=1 + active → accept；否則 close 4401）+ `welcome`;連線記 `principal_id` + `sid`。**新增 `get_session_factory`（§2.2/§4），handshake 重載 Admin 以短命 session 進行、不用 `Depends(get_session)`**（7.1）。
 4. `ConnectionManager`：register（含同 `(sid,cid)` 取代 §2.12b）/unregister/subscribe/unsubscribe/`send_local` + 有界佇列 writer + `_teardown`（送出失敗即斷 §2.12a）（7.2/7.3/7.7）。
 5. 控制訊息迴圈：subscribe/unsubscribe（含 topic 授權）/pong;未知 type → error（7.2/7.6）。
-6. 心跳（ping/pong + timeout）與定期複查（`is_active` ＋ session 有效性;無連線硬性上限）（7.3）。
-7. `Publisher` + `bridge`（Redis pub/sub fan-out、kick）+ lifespan 啟停（7.4）。
+6. 心跳（ping/pong + timeout）與定期複查（`is_active` ＋ session 有效性;無連線硬性上限）;**`WsReauthService`（持 `get_session_factory`、每輪開短命 session）＋ provider `get_ws_reauth_service`，複查 task accept 時捕獲、request scope 外反覆用（§2.2/§4）**（7.3）。
+7. `Publisher` + `bridge`（Redis pub/sub fan-out、kick）+ lifespan 啟停（含 shutdown `manager.close_all(1012)` 優雅斷線）（7.4）。
 8. 撤權／登出即時斷線：archive/delete/change_password/logout_all → `disconnect_principal`;單一 logout → `disconnect_session`（用 §2.11 的 `sid`）;複查已驗 session 有效性（7.5）。
 9. 資源上限 + Origin 檢查 + 速率限制（7.6、§6）。
 10. 提交前檢查全綠（ruff / ruff format / pyright / pytest）;真 Redis/多實例煙霧測試。
@@ -509,6 +537,7 @@ async with aconnect_ws(f"http://test/admin/ws?ticket={ticket}&cid=tab-1", ws_cli
 - ✅ **JSON 封套、`type` 驅動**;應用層心跳（ping/pong）+ 閒置逾時;**有界佇列、慢消費者即斷**（1013）。
 - ✅ **撤權／登出即時斷線**：archive/delete/change_password/**logout_all** → kick 該 principal 全部 WS;**單一 logout** → 僅斷該 session（`sid`=refresh family_id）WS;定期複查驗 `is_active`＋session 有效性作兜底（logout 不改 `is_active`，不能只靠 kick）。皆 `close(4401)`、授權讀 child 現值。
 - ✅ **前置依賴（已定，規格已落地）**：access token 新增 **`sid` claim**（= refresh `family_id`）——單一 logout 精準斷 WS 的必要條件;本模組實作前，先於 JWT 層落地 `create_access_token(..., sid=)` 並讓 `login`/`admin_login`/`register`/`refresh` 帶入當次 `family_id`（**規格見 [`rbac.md`](./rbac.md) §4.1／§5.1**）。另需 `RefreshTokenRepository.has_live_tokens_in_family`（複查 session 有效性，**規格見 [`refresh-token-rotation.md`](./refresh-token-rotation.md) §5.2**）。所有 `ws_*` 參數彙整於本文 **§4.1**。
+- ✅ **長連線 DB session 策略（§2.2／§4）**：WS 端點與複查 task 注入 **session 工廠**（新增 `get_session_factory` → `AsyncSessionLocal`；provider `get_ws_reauth_service` **比照既有 `get_*_service`**），**每 DB 工作單元開短命 session、閒置零持有**;**不用 `Depends(get_session)`**（避免 request-scoped session 綁死無上限連線 ＋ 並發共用單一 `AsyncSession`）。授權現值靠複查重讀、`Connection` 只存原生值快照（不掛 ORM）。既有 HTTP service（session 注入、多 repo 共享交易）**不變** → 兩種 scope 各用對的工具（`app/core/db` docstring 已預留 worker 自管 session）。**不新增 config**（沿用 `ws_reauth_interval_seconds`）。
 - ✅ **連線清理與去重（§2.12）**：(a) **送出失敗即斷**——writer/心跳 send 丟 transport 例外 → 冪等 `_teardown`（只認斷線例外、不誤斷 payload bug）;(b) **同分頁取代**——鍵 `(sid, cid)`，同分頁重連 `close(4409)` 取代舊連線，不誤殺兄弟分頁、不 flapping。`cid`＝前端 per-分頁 `crypto.randomUUID()` 存 `sessionStorage`、走 WS query（不進 ticket）、可選、server 清洗不信任。
 - ✅ **topic 授權掛勾**（`admin_role` 門檻，越權只 `error` 不斷線）;Origin 檢查、資源上限防 DoS。
 - ✅ 分層：API（握手/收控制訊息）→ Service（manager/publisher/bridge）→ Redis;業務推播由各 service 呼叫 `Publisher`。

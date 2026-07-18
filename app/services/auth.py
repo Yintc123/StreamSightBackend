@@ -57,6 +57,7 @@ from app.services.initial_admin import (
     is_initial_admin_username,
 )
 from app.services.user import UserService
+from app.services.ws.publisher import Publisher
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -80,13 +81,15 @@ def _as_utc(dt: datetime) -> datetime:
 class AuthService:
     """Register + login flows, identity-provider aware; refresh token rotation."""
 
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(self, session: AsyncSession, publisher: Publisher | None = None) -> None:
         self.session: AsyncSession = session
         self.user_service: UserService = UserService(session)
         self.identity_repo: IdentityRepository = IdentityRepository(session)
         self.principal_repo: PrincipalRepository = PrincipalRepository(session)
         self.admin_repo: AdminRepository = AdminRepository(session)
         self.refresh_repo: RefreshTokenRepository = RefreshTokenRepository(session)
+        # 登出時即時斷 WS（best-effort kick；可靠性由 WS 定期複查兜底，websocket §2.5）。
+        self.publisher: Publisher | None = publisher
 
     async def _issue_refresh_token(
         self, principal_id: int, family_id: str
@@ -144,10 +147,12 @@ class AuthService:
             )
             await self.identity_repo.add(identity)
             # 4. 產 access token + refresh token（sub = principal_id、role = 0、grade = user_tier）
+            #    sid = 當次 refresh family_id（供 WS 綁 session、單一 logout，見 websocket §2.11）
+            family_id: str = str(uuid4())
             access_token: str = create_access_token(
-                user.principal_id, Role.USER, grade=_grade_of(user)
+                user.principal_id, Role.USER, grade=_grade_of(user), sid=family_id
             )
-            refresh_token, _ = await self._issue_refresh_token(user.principal_id, str(uuid4()))
+            refresh_token, _ = await self._issue_refresh_token(user.principal_id, family_id)
             # 5. 唯一一次 commit：全部原子落地
             await self.session.commit()
         except Exception:
@@ -178,8 +183,11 @@ class AuthService:
         if not user.is_active:
             raise UnauthorizedError("Invalid email or password")
 
-        access_token: str = create_access_token(user.principal_id, Role.USER, grade=_grade_of(user))
-        refresh_token, _ = await self._issue_refresh_token(user.principal_id, str(uuid4()))
+        family_id: str = str(uuid4())
+        access_token: str = create_access_token(
+            user.principal_id, Role.USER, grade=_grade_of(user), sid=family_id
+        )
+        refresh_token, _ = await self._issue_refresh_token(user.principal_id, family_id)
         await self.session.commit()
 
         # 低頻路徑順手清理過期 token（best-effort，不影響登入）
@@ -216,10 +224,11 @@ class AuthService:
         if admin is None or not password_ok or not admin.is_active:
             raise UnauthorizedError("Invalid username or password")
 
+        family_id: str = str(uuid4())
         access_token: str = create_access_token(
-            admin.principal_id, Role.ADMIN, grade=_grade_of(admin)
+            admin.principal_id, Role.ADMIN, grade=_grade_of(admin), sid=family_id
         )
-        refresh_token, _ = await self._issue_refresh_token(admin.principal_id, str(uuid4()))
+        refresh_token, _ = await self._issue_refresh_token(admin.principal_id, family_id)
         await self.session.commit()
 
         logger.info("Admin login success id=%s username=%s", admin.id, admin.username)
@@ -280,7 +289,10 @@ class AuthService:
         await self.session.commit()
         # 依 principal.role 重簽正確 role 的 access token（天然防提權）；順手讀 child 最新
         # 等級重簽 grade → 每次 rotation 自動刷新（陳舊窗口 ≤ 一個 access TTL，見 rbac §5.1）。
-        new_access: str = create_access_token(rt.principal_id, role, grade=_grade_of(child))
+        # rotation 保持同一 family_id → sid 穩定（同一 session 跨多次 refresh 不變，websocket §2.11）
+        new_access: str = create_access_token(
+            rt.principal_id, role, grade=_grade_of(child), sid=rt.family_id
+        )
         logger.info("Refreshed token for principal id=%s role=%s", rt.principal_id, int(role))
         return TokenPayload(access_token=new_access, refresh_token=new_plain)
 
@@ -299,11 +311,33 @@ class AuthService:
             return  # 靜默成功，避免 enumeration
         rt.revoked_at = datetime.now(UTC)
         await self.session.commit()
+        # 單一 logout：只斷該 session（sid = family_id）的 WS（websocket §2.5）。
+        await self._kick_session(rt.family_id)
 
     async def logout_all(self, principal_id: int) -> None:
         """Revoke all active refresh tokens for a principal (logout all devices, 角色無關)."""
         await self.refresh_repo.revoke_all_for_principal(principal_id, datetime.now(UTC))
         await self.session.commit()
+        # logout_all：斷該 principal 的全部 WS（websocket §2.5）。
+        await self._kick_principal(principal_id)
+
+    async def _kick_principal(self, principal_id: int) -> None:
+        """best-effort：發佈 Redis kick 斷該 principal 全部 WS。失敗不影響已提交的登出。"""
+        if self.publisher is None:
+            return
+        try:
+            await self.publisher.disconnect_principal(principal_id)
+        except Exception:
+            logger.warning("WS kick publish failed principal=%s", principal_id, exc_info=True)
+
+    async def _kick_session(self, family_id: str) -> None:
+        """best-effort：發佈 Redis kick 只斷該 session（sid）的 WS。失敗由定期複查兜底。"""
+        if self.publisher is None:
+            return
+        try:
+            await self.publisher.disconnect_session(family_id)
+        except Exception:
+            logger.warning("WS kick publish failed sid=%s", family_id, exc_info=True)
 
     def _decode_access(self, token: str) -> tuple[int, Role]:
         """驗簽 + 檢 type=access，回 (principal_id, role)。role fail-safe（缺/未知 → USER）。

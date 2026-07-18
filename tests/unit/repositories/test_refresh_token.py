@@ -127,6 +127,59 @@ async def test_revoke_all_for_principal_only_active_and_scoped(
     assert b_active.revoked_at is None  # 其他 principal 不受影響
 
 
+# ── has_live_tokens_in_family（複查 session 有效性用，websocket §2.2）────────
+async def test_has_live_tokens_in_family_true_when_active(
+    db_session: AsyncSession, alice: User
+) -> None:
+    repo = RefreshTokenRepository(db_session)
+    await _make_token(db_session, alice, token_hash="live", family_id="S1")
+
+    assert await repo.has_live_tokens_in_family("S1", now=datetime.now(UTC)) is True
+
+
+async def test_has_live_tokens_in_family_false_when_all_revoked(
+    db_session: AsyncSession, alice: User
+) -> None:
+    """整個 session 已登出（family 內全撤銷）→ False。"""
+    repo = RefreshTokenRepository(db_session)
+    await _make_token(
+        db_session, alice, token_hash="revoked", family_id="S2", revoked_at=datetime.now(UTC)
+    )
+
+    assert await repo.has_live_tokens_in_family("S2", now=datetime.now(UTC)) is False
+
+
+async def test_has_live_tokens_in_family_false_when_all_expired(
+    db_session: AsyncSession, alice: User
+) -> None:
+    repo = RefreshTokenRepository(db_session)
+    await _make_token(
+        db_session, alice, token_hash="expired", family_id="S3", expires_delta=timedelta(seconds=-1)
+    )
+
+    assert await repo.has_live_tokens_in_family("S3", now=datetime.now(UTC)) is False
+
+
+async def test_has_live_tokens_in_family_false_when_missing(
+    db_session: AsyncSession, alice: User
+) -> None:
+    repo = RefreshTokenRepository(db_session)
+    assert await repo.has_live_tokens_in_family("no-such-family", now=datetime.now(UTC)) is False
+
+
+async def test_has_live_tokens_in_family_scoped_to_family(
+    db_session: AsyncSession, alice: User
+) -> None:
+    """只看該 family，其他 family 有 live token 不影響。"""
+    repo = RefreshTokenRepository(db_session)
+    await _make_token(db_session, alice, token_hash="other-live", family_id="OTHER")
+    await _make_token(
+        db_session, alice, token_hash="s4-revoked", family_id="S4", revoked_at=datetime.now(UTC)
+    )
+
+    assert await repo.has_live_tokens_in_family("S4", now=datetime.now(UTC)) is False
+
+
 # ── delete_expired ──────────────────────────────────────────
 async def test_delete_expired_only_removes_expired(db_session: AsyncSession, alice: User) -> None:
     repo = RefreshTokenRepository(db_session)

@@ -17,7 +17,10 @@ from app.core.enums import Role
 
 
 def create_access_token(
-    subject: str | int, role: Role = Role.USER, grade: str | None = None
+    subject: str | int,
+    role: Role = Role.USER,
+    grade: str | None = None,
+    sid: str | None = None,
 ) -> str:
     """
     Create a JWT access token for the given subject (usually principal id).
@@ -28,6 +31,8 @@ def create_access_token(
         role: 角色判別子（0=user, 1=admin）；預設 Role.USER 讓既有呼叫端無縫相容
         grade: 該型別內的等級字串（admin→admin_role、user→user_tier）；None 則不放此 key
                （向後相容，僅為 UX 提示、非授權邊界，見 rbac §4）
+        sid: session id（= 該登入的 refresh family_id），供 WS 綁 session、單一 logout
+             精準斷線（websocket §2.11）；None 則不放此 key（向後相容，比照 grade）。
         iat: issued at (UTC timestamp)
         exp: expires at (UTC timestamp)
     """
@@ -44,6 +49,8 @@ def create_access_token(
     }
     if grade is not None:
         payload["grade"] = grade
+    if sid is not None:
+        payload["sid"] = sid
 
     return jwt.encode(
         payload,
@@ -73,6 +80,15 @@ def extract_grade(payload: dict[str, Any]) -> str | None:
     return payload.get("grade")
 
 
+def extract_sid(payload: dict[str, Any]) -> str | None:
+    """解析 sid claim（session id＝refresh family_id）：缺 key → None。
+
+    供 WS 綁 session、單一 logout 精準斷線（websocket §2.11）。無 sid 的 token
+    （初始 admin／舊 token）→ 不參與 sid-kick，只受 principal 級 kick 與定期複查。
+    """
+    return payload.get("sid")
+
+
 def decode_token(token: str) -> dict[str, Any]:
     """
     Decode + verify a JWT
@@ -96,4 +112,5 @@ __all__ = [
     "decode_token",
     "extract_grade",
     "extract_role",
+    "extract_sid",
 ]

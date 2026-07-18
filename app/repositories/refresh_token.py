@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Delete, Select, Update, select
+from sqlalchemy import Delete, Select, Update, exists, select
 from sqlalchemy import delete as sql_delete
 from sqlalchemy import update as sql_update
 from sqlalchemy.engine import CursorResult, Result
@@ -12,6 +12,22 @@ from .base import BaseRepository
 
 class RefreshTokenRepository(BaseRepository[RefreshToken]):
     model: type[RefreshToken] = RefreshToken
+
+    async def has_live_tokens_in_family(self, family_id: str, *, now: datetime) -> bool:
+        """該 family 是否仍有未撤銷且未過期的 refresh token（唯讀 EXISTS）。
+
+        供 WS 定期複查 session 有效性（websocket §2.2）：整條 family 皆撤銷/過期
+        （已 logout / session 到期）→ False → 呼叫端 close(4401)。
+        """
+        stmt: Select[tuple[bool]] = select(
+            exists().where(
+                RefreshToken.family_id == family_id,
+                RefreshToken.revoked_at.is_(None),
+                RefreshToken.expires_at > now,
+            )
+        )
+        result: Result[tuple[bool]] = await self.session.execute(stmt)
+        return bool(result.scalar())
 
     async def get_by_hash(self, token_hash: str) -> RefreshToken | None:
         """Fetch a refresh token row by its stored hash. Returns None if not found."""

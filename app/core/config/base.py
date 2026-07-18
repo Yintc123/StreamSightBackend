@@ -110,6 +110,58 @@ class BaseAppSettings(BaseSettings):
         description="Initial super admin argon2id password hash (SSM SecureString; empty = disabled)",
     )
 
+    # ── WebSocket（Admin 即時推播，websocket §4.1）─────────────────────────
+    # 時間一律「秒」（比照 jwt_access_token_expire_seconds）。無「連線最長壽命」上限（§2.2）。
+    ws_ticket_ttl_seconds: int = Field(
+        default=180,
+        ge=1,
+        le=3600,
+        description="ticket 簽發後多久內須建立 WS（換票→開連線的寬限窗，非連線時長）",
+    )
+    ws_ping_interval_seconds: int = Field(
+        default=30, ge=1, le=3600, description="server 送應用層 ping 的週期"
+    )
+    ws_missed_pong_limit: int = Field(
+        default=2, ge=1, le=10, description="連續未回 pong 幾次判死 → close(4000)"
+    )
+    ws_idle_timeout_seconds: int = Field(
+        default=120,
+        ge=1,
+        le=86400,
+        description="連線無任何進站訊息（含 pong）超時即關；須 > ping_interval",
+    )
+    ws_max_send_queue: int = Field(
+        default=100,
+        ge=1,
+        le=100000,
+        description="per-connection 有界送出佇列上限；滿（慢消費者）→ close(1013)",
+    )
+    ws_reauth_interval_seconds: int = Field(
+        default=300,
+        ge=1,
+        le=86400,
+        description="定期複查週期（is_active + session 有效性）；失效 → close(4401)",
+    )
+    ws_max_connections_per_principal: int = Field(
+        default=10, ge=1, le=1000, description="單一 admin 最大同時連線數；超限拒絕（close 1013）"
+    )
+    ws_max_connections_total: int = Field(
+        default=10000, ge=1, le=1000000, description="全實例最大連線數（防 DoS）；超限拒絕（1013）"
+    )
+    ws_max_message_bytes: int = Field(
+        default=16384, ge=1, le=1048576, description="單一進站訊息大小上限；超過 → close(4400)"
+    )
+    ws_control_msg_rate_limit: int = Field(
+        default=20, ge=1, le=10000, description="控制訊息速率上限（每連線 / 10s 滑動窗）"
+    )
+    ws_cid_max_length: int = Field(
+        default=64, ge=1, le=256, description="cid 清洗上限（字元集 [A-Za-z0-9_-]）"
+    )
+    ws_allowed_origins: list[str] = Field(
+        default_factory=list,
+        description="handshake Origin 允許清單（防 CSWSH）；空＝依環境（語意於實作定案）",
+    )
+
     # redis - connection fields
     redis_host: str = Field(default="localhost", description="Redis host")
     redis_port: int = Field(

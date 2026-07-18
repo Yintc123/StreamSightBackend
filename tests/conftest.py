@@ -7,6 +7,7 @@ os.environ["ENCRYPTION_KEY"] = "test-encryption-key-32-chars-min-length"
 os.environ["JWT_SECRET_KEY"] = "test-jwt-secret-key-32-chars-min-length-for-tests"
 os.environ["REFRESH_TOKEN_HASH_SECRET"] = "test-refresh-token-pepper-32-chars-min-length"
 
+import contextlib
 from collections.abc import AsyncGenerator
 from typing import Any
 
@@ -25,7 +26,7 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.pool import StaticPool
 
-from app.api.dependencies import get_redis, get_session
+from app.api.dependencies import get_redis, get_session, get_session_factory
 from app.app import create_app
 from app.core.config import BaseAppSettings, get_app_settings
 from app.core.db import Base
@@ -133,6 +134,60 @@ async def client(
         yield ac
 
     app.dependency_overrides.clear()
+
+
+# ────────────────────────────────────────────────
+# WebSocket client（httpx-ws，全 async、與 fixtures 同一 event loop）§7.0-a
+# ────────────────────────────────────────────────
+@pytest.fixture
+async def ws_client(
+    db_session: AsyncSession,
+    fake_redis: redis.Redis,
+) -> AsyncGenerator[AsyncClient]:
+    """AsyncClient（httpx-ws transport）：同一 client 打 HTTP（換票）+ WS（連線）。
+
+    沿用 `client` 的 override 模型，只換 transport。長連線 session（§2.2/§4）：WS 端點與
+    複查 task 走 get_session_factory，測試 override 成「回一個 yield 共享 db_session 的工廠」，
+    複查才讀得到 fixture（否則會開到另一條 SQLite in-memory connection、讀不到）。
+    """
+    from httpx_ws.transport import ASGIWebSocketTransport
+
+    app: FastAPI = create_app()
+
+    async def override_get_session() -> AsyncGenerator[AsyncSession]:
+        yield db_session
+
+    app.dependency_overrides[get_session] = override_get_session
+    app.dependency_overrides[get_redis] = lambda: fake_redis
+
+    @contextlib.asynccontextmanager
+    async def _shared_session() -> AsyncGenerator[AsyncSession]:
+        yield db_session  # 不 close：交回 db_session fixture 收尾
+
+    app.dependency_overrides[get_session_factory] = lambda: _shared_session
+
+    # ASGITransport 不跑 lifespan → 手動起 bridge，讓 Publisher→Redis→WS 全鏈路可測（§7.2）。
+    from app.services.ws.bridge import WsBridge
+
+    bridge = WsBridge(fake_redis, app.state.ws_manager)
+    await bridge.start()
+
+    transport = ASGIWebSocketTransport(app)
+    ac = AsyncClient(transport=transport, base_url="http://test")
+    await ac.__aenter__()
+    try:
+        yield ac
+    finally:
+        await bridge.stop()
+        # ASGIWebSocketTransport 於 __aenter__ 建 anyio task group；pytest-asyncio 在
+        # 「不同 task」的 finalizer 關閉它 → cross-task cancel-scope RuntimeError。此時所有
+        # aconnect_ws（各於 test 內同 task 進出）已關閉、無殘留任務，僅吞這個 teardown 假象。
+        try:
+            await ac.__aexit__(None, None, None)
+        except RuntimeError as e:
+            if "cancel scope" not in str(e):
+                raise
+        app.dependency_overrides.clear()
 
 
 # ────────────────────────────────────────────────

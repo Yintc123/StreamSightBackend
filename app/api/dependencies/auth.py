@@ -8,6 +8,12 @@ from fastapi import Depends
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.auth import (
+    ExpiredSignatureError,
+    InvalidTokenError,
+    decode_token,
+    extract_sid,
+)
 from app.core.enums import (
     ADMIN_ROLE_RANK,
     USER_TIER_RANK,
@@ -72,6 +78,18 @@ async def get_current_principal(
     """
     auth_service: AuthService = AuthService(session)
     return await auth_service.get_principal_from_token(token)
+
+
+async def get_current_token_sid(token: str = Depends(_oauth2_schema)) -> str | None:
+    """從當次 access token 取 sid（= refresh family_id），供 WS ticket 綁 session（§2.11）。
+
+    token 的有效性由並列的 `get_current_admin` 保證（無效則整個請求先 401）；此處僅解析
+    sid，解不出（缺 claim／初始 admin／壞 token）回 None → ticket 不綁 sid、只受 principal 級 kick。
+    """
+    try:
+        return extract_sid(decode_token(token))
+    except (ExpiredSignatureError, InvalidTokenError):
+        return None
 
 
 def require_min_admin_role(minimum: AdminRole) -> Callable[..., Awaitable[Admin]]:

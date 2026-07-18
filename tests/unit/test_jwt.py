@@ -13,6 +13,7 @@ from app.core.auth import (
     decode_token,
     extract_grade,
     extract_role,
+    extract_sid,
 )
 from app.core.config import BaseAppSettings, get_app_settings
 from app.core.enums import Role
@@ -72,6 +73,31 @@ def test_extract_grade_missing_returns_none() -> None:
 
 def test_extract_grade_reads_claim() -> None:
     assert extract_grade({"grade": "super_admin"}) == "super_admin"
+
+
+def test_sid_claim_included_when_provided() -> None:
+    """§2.11：帶 sid → payload 有 sid key（= refresh family_id，供 WS 綁 session）。"""
+    token: str = create_access_token(user_id, Role.ADMIN, grade="editor", sid="fam-123")
+    payload: dict = decode_token(token)
+
+    assert payload["sid"] == "fam-123"
+    assert set(payload.keys()) == {"sub", "type", "role", "grade", "sid", "iat", "exp"}
+
+
+def test_sid_claim_omitted_when_none() -> None:
+    """不傳 sid → 不放 sid key（向後相容，比照 grade 處理）。"""
+    token: str = create_access_token(user_id)
+    payload: dict = decode_token(token)
+
+    assert "sid" not in payload
+
+
+def test_extract_sid_missing_returns_none() -> None:
+    assert extract_sid({}) is None
+
+
+def test_extract_sid_reads_claim() -> None:
+    assert extract_sid({"sid": "fam-abc"}) == "fam-abc"
 
 
 def test_extract_role_missing_defaults_to_user() -> None:
