@@ -41,9 +41,12 @@ _require_super = require_min_admin_role(AdminRole.SUPER_ADMIN)
 
 def _to_token_response(token: TokenPayload) -> TokenResponse:
     """Wrap a service TokenPayload into the API TokenResponse, filling expires_in."""
+    expires_in = (
+        token.access_token_expire_seconds or get_app_settings().jwt_access_token_expire_seconds
+    )
     return TokenResponse(
-        **token.model_dump(),
-        expires_in=get_app_settings().jwt_access_token_expire_seconds,
+        **token.model_dump(exclude={"access_token_expire_seconds"}),
+        expires_in=expires_in,
     )
 
 

@@ -97,3 +97,31 @@ async def test_initial_admin_login_has_no_sid(db_session: AsyncSession, monkeypa
 
     assert token.refresh_token is None
     assert extract_sid(decode_token(token.access_token)) is None
+
+
+async def test_initial_admin_access_token_expires_in_3h(
+    db_session: AsyncSession, monkeypatch
+) -> None:
+    """初始 admin access token exp 應為 3 小時（±10s 容差）。"""
+    from datetime import UTC, datetime, timedelta
+
+    from pydantic import SecretStr
+
+    from app.core.auth import hash_password
+    from app.core.config import get_app_settings
+
+    settings = get_app_settings()
+    pw_hash = await hash_password("initial-longpassword2")
+    monkeypatch.setattr(settings, "initial_admin_username", "root-3h")
+    monkeypatch.setattr(settings, "initial_admin_password_hash", SecretStr(pw_hash))
+
+    auth = AuthService(db_session)
+    before = datetime.now(UTC)
+    token = await auth.admin_login(
+        AdminLoginRequest(username="root-3h", password="initial-longpassword2")
+    )
+
+    payload = decode_token(token.access_token)
+    actual_exp = datetime.fromtimestamp(payload["exp"], UTC)
+    expected_exp = before + timedelta(hours=3)
+    assert abs((actual_exp - expected_exp).total_seconds()) < 10

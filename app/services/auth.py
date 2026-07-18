@@ -213,10 +213,17 @@ class AuthService:
             if not await verify_password(payload.password, initial_admin_hash()):
                 raise UnauthorizedError("Invalid username or password")
             access_token = create_access_token(
-                INITIAL_ADMIN_PRINCIPAL_ID, Role.ADMIN, grade=AdminRole.SUPER_ADMIN.value
+                INITIAL_ADMIN_PRINCIPAL_ID,
+                Role.ADMIN,
+                grade=AdminRole.SUPER_ADMIN.value,
+                expire_seconds=3 * 3600,
             )
             logger.info("Initial super admin login success username=%s", payload.username)
-            return TokenPayload(access_token=access_token, refresh_token=None)
+            return TokenPayload(
+                access_token=access_token,
+                refresh_token=None,
+                access_token_expire_seconds=3 * 3600,
+            )
 
         # DTO 已正規化 username（strip + lower）
         admin: Admin | None = await self.admin_repo.get_by_username(payload.username)

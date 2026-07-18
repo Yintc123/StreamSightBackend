@@ -85,3 +85,6 @@ class TokenPayload(BaseModel):
     access_token: str = Field(description="JWT access token")
     token_type: str = Field(default="bearer", description="Token type (RFC 6750)")
     refresh_token: str | None = Field(default=None, description="Opaque refresh token")
+    access_token_expire_seconds: int | None = Field(
+        default=None, description="Actual access token TTL in seconds; None = use global default"
+    )

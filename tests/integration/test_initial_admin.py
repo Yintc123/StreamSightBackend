@@ -137,6 +137,12 @@ async def test_cannot_create_db_admin_with_initial_admin_username(
     assert resp.status_code == status.HTTP_409_CONFLICT  # 保留字
 
 
+async def test_initial_admin_login_expires_in_3h(client: AsyncClient, initial_admin: dict) -> None:
+    """初始 admin 登入回應的 expires_in 應為 3 小時（10800 秒）。"""
+    body = await _ia_login(client)
+    assert body["expires_in"] == 3 * 3600
+
+
 async def test_initial_admin_disabled_falls_through(client: AsyncClient) -> None:
     """未啟用（無 config）→ 用該 username 登入走 DB 路徑 → 查無 → 401。"""
     resp = await client.post(
