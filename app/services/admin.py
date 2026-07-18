@@ -18,6 +18,7 @@ from app.core.exceptions import (
     BadRequestError,
     BusinessRuleError,
     ConflictError,
+    ForbiddenError,
     NotFoundError,
     UnauthorizedError,
 )
@@ -26,6 +27,7 @@ from app.models.admin import Admin
 from app.repositories.admin import AdminListRow, AdminRepository
 from app.repositories.principal import PrincipalRepository
 from app.repositories.refresh_token import RefreshTokenRepository
+from app.services.initial_admin import INITIAL_ADMIN_PRINCIPAL_ID, is_initial_admin_username
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -110,6 +112,9 @@ class AdminService:
         u: str = normalize_username(username)
         if not _USERNAME_RE.fullmatch(u):
             raise BadRequestError("Invalid admin username format", details={"field": "username"})
+        # 初始 super admin username 為保留字（避免 DB admin 遮蔽／混淆特例帳號）
+        if is_initial_admin_username(u):
+            raise ConflictError(f"Admin {u} already registered", details={"field": "username"})
         if await self.repo.get_by_username(u) is not None:
             raise ConflictError(f"Admin {u} already registered", details={"field": "username"})
 
@@ -158,7 +163,11 @@ class AdminService:
             NotFoundError: admin 不存在或已軟刪除。
             UnauthorizedError: 舊密碼不符（統一訊息）。
             BadRequestError: 新密碼等於舊密碼。
+            ForbiddenError: 初始 super admin（憑證由 SSM 管理、不可經 API 改）。
         """
+        # 初始 super admin（哨兵 id）憑證存 SSM，不可經 API 改密碼。
+        if admin_id == INITIAL_ADMIN_PRINCIPAL_ID:
+            raise ForbiddenError("Initial admin password is managed out-of-band (SSM)")
         admin: Admin = await self.get(admin_id)
         if not await verify_password(current_password, admin.password_hash):
             raise UnauthorizedError("Invalid credentials")

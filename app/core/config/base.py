@@ -94,16 +94,20 @@ class BaseAppSettings(BaseSettings):
         description="Grace window (seconds) where re-presenting a just-rotated token does not nuke the family",
     )
 
-    # 初始 CMS admin（供 seed script 建立；app runtime 非必要，空值時 seed script 報錯）
+    # 初始 super admin（憑證存 SSM／config、**不進 DB**；恆為 super_admin、只發 access token、
+    # 不可改密碼／鎖死）。兩者皆非空才啟用。登入後用來建立 DB admin（取代舊 seed 腳本）。
+    # 密碼以 argon2id 雜湊形式存放（明文永不落地）。
     initial_admin_username: str = Field(
-        default="", description="Initial CMS admin username (seed script only)"
+        default="",
+        description="Initial super admin username (SSM-backed, not in DB; empty = disabled)",
     )
     initial_admin_name: str = Field(
         default="",
-        description="Initial CMS admin display name (seed script only; empty → 用 username)",
+        description="Initial super admin display name (optional; empty → 用 username)",
     )
-    initial_admin_password: SecretStr = Field(
-        default=SecretStr(""), description="Initial CMS admin password (seed script only)"
+    initial_admin_password_hash: SecretStr = Field(
+        default=SecretStr(""),
+        description="Initial super admin argon2id password hash (SSM SecureString; empty = disabled)",
     )
 
     # redis - connection fields

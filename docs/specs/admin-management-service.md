@@ -1,5 +1,10 @@
 # 規格書（Service 層）：Admin 管理 — 業務邏輯
 
+> 🔄 **變更註記（初始 admin 整併，晚於本文其餘內容）**：seed 腳本已**移除**；**第一位 super admin 改為 SSM-backed「初始 admin」**（`INITIAL_ADMIN_USERNAME` + `INITIAL_ADMIN_PASSWORD_HASH`；憑證存 config／SSM、**不進 DB**、哨兵 `principal_id=0`、只發 access token、不可改密碼／鎖死；`app/services/initial_admin.py`）。影響:
+> - **「≥1 active super_admin」改由 SSM 初始 admin 保證**（恆可登入、無法被鎖死），取代原「seed 建 DB 受保護 root」;`is_protected` 機制保留為**可選** DB 硬化,預設無列被標 protected。
+> - **bootstrap 流程**:設定 SSM 的 `INITIAL_ADMIN_*` → 以它登入 → 建立 DB admin。
+> - §3.7（Seed）、§6（復原）已據此改寫;其餘提及 seed／受保護 root 之處以本註記為準。
+
 > 狀態：**Draft（待實作）** ／ 目標版本：next+2 ／ 開發模式：**嚴格 TDD（見 `CLAUDE.md`）**
 >
 > 📎 本文是「Admin 管理」三份規格的 **Service 層**（業務邏輯）。另兩份：
@@ -159,9 +164,13 @@ async def delete(self, admin_id: int, *, actor_principal_id: int | None = None) 
 
 > **注意順序（archive）**：`archive` 有 idempotent（已封存直接回）。順序為：`get` → **若已 `archived_at` 直接回** → 守衛 → 設值。但因 super_admin 根本不能進到 archived 態（archive 前就被守衛擋），實務上已封存者必非 super_admin，兩者不衝突。
 
-### 3.7 Seed（建立受保護 root）
+### 3.7 初始 super admin（SSM，取代 seed）
 
-`scripts/create_admin.py` 的 `create_initial_admin` 改以 **`create(..., admin_role=SUPER_ADMIN, is_protected=True)`** 建立 bootstrap root（冪等：已存在則略過）。這是「≥1 super_admin」不變式的**唯一建立點**（model §2.2 前置條件）。
+**seed 腳本已移除。** 第一位 super admin 是 **SSM-backed 初始 admin**（`app/services/initial_admin.py`）:憑證存 config／SSM（`INITIAL_ADMIN_USERNAME` + `INITIAL_ADMIN_PASSWORD_HASH`，argon2id 雜湊;另有**可選** `INITIAL_ADMIN_NAME` 顯示名,空 → 用 username）、**不進 DB**、哨兵 `principal_id=0`、登入只發 access token、合成一個記憶體 `Admin(super_admin)`。bootstrap 流程:設定 SSM → 以它登入 → 經 `POST /admin/admins` 建立 DB admin。
+
+- 它**恆可登入、無法被鎖死**,故「≥1 active super_admin」不變式改由**它**保證（取代原 seed 建的 DB 受保護 root，model §2.1 變更註記）。
+- **不可經 API 改密碼**（`change_password` 對哨兵 id → `ForbiddenError`）;輪替＝更新 SSM 雜湊,停用＝清空 config。
+- 其 username 為**保留字**:禁止用 API 建立同名 DB admin（`create` → `ConflictError`）。
 
 ### 3.8 `list_admins`（委派 repository）
 
@@ -221,7 +230,10 @@ async def get_row(self, admin_id: int, *, include_deleted: bool = False) -> Admi
 - **密碼變更撤 token**：自助改密碼後強制所有裝置重新登入（既有 refresh token 立即失效；access token 殘留 ≤ TTL，既有取捨）。
 - **忘記密碼的復原路徑**：admin **無 email**（找不回）、且**不提供 super_admin 重設他人密碼**。
   - **一般 admin／非受保護 super_admin** 被鎖在外：由另一位 super_admin 復原——非 super_admin 直接軟刪後重建；super_admin 先降級再軟刪後重建。此為目前定案下明確接受的取捨。
-  - **⚠️ 受保護 root 被鎖在外（唯一真實營運風險，C）**：受保護 root 不可降級／封存／刪除、又無 reset-others、又無 email 找回 → **系統中權限最高的帳號在應用層完全無復原路徑，只剩 DBA 直接改 DB（break-glass）**。這是受保護 root 設計優雅性的另一面。**目前定案：明確接受，並要求在營運 runbook 記錄「protected root 復原＝離線 DBA break-glass」**（例如離線執行 seed script 重設其 hash）。若此風險痛點浮現，再議受控 break-glass 工具或 admin email 找回（見 §10 Open Q5／Q6）。
+  - **所有 DB super_admin 都失效 → 由 SSM 初始 admin 復原（已實作）**：`app/services/initial_admin.py` 的初始 admin（§3.7）**憑證存 config／SSM、不進 DB**、哨兵 `principal_id=0`、只發 access token、恆為 `super_admin`、**不出現在列表、無法被封存／刪除／改名／改密碼／鎖死**;只要 SSM 有其 argon2 雜湊就永遠可登入。故即使 DB 裡的 super_admin 全被鎖/刪,仍能以初始 admin 登入、重建或修復 DB admin——它同時是 bootstrap 入口與永久復原路徑。
+    - 憑證:`INITIAL_ADMIN_USERNAME` + `INITIAL_ADMIN_PASSWORD_HASH`（argon2id 雜湊,SSM SecureString;兩者皆非空才啟用）。**明文密碼永不落地任何設定**。
+    - 密碼「輪替」= 更新 SSM 的雜湊（改雜湊即令舊 access token 於 ≤ 一個 TTL 後失效;停用 = 清空 config → 舊 token 立即 401）。
+    - 初始 admin username 為**保留字**:禁止用 API 建立同名 DB admin（避免遮蔽/混淆）。
 - **降權即時性**：授權讀 child 現值 → 降權對後端存取控制即時；`grade` claim 由 refresh 刷新。
 - **稽核**：狀態轉移寫 `*_by`；更新／升降權／重設密碼走 log（不記明文）。
 
@@ -273,7 +285,7 @@ async def get_row(self, admin_id: int, *, include_deleted: bool = False) -> Admi
 
 - ✅ **受保護 root 單列守衛**保證 ≥1 super_admin：**無聚合計數、無鎖、無 write skew**（核心，model §2.1）。
 - ✅ **DB 兜底（A）**：受保護守衛另有 `ck_admins_protected_is_super`＋`ck_admins_protected_is_active` 兩條 CHECK，繞過 service 直接寫 DB 亦擋（model §2.3）——「root 恆 active super_admin」除 bootstrap 外全由 DB 保證。
-- ✅ **受保護 root 復原（C）**：明確接受「唯一復原路徑為離線 DBA break-glass」並記入 runbook（§6）；受保護者本身不可降級／封存／刪除、無自我降級之虞。
+- ✅ **初始 admin ＝ SSM-backed（已實作，取代 seed）**：第一位 super admin 憑證存 config／SSM、不進 DB、哨兵 `principal_id=0`、只發 access token、不可被管理／改密碼／鎖死;同時是 bootstrap 入口與永久復原路徑（§3.7/§6）。「≥1 active super_admin」改由它保證。`is_protected` 機制保留為可選 DB 硬化。
 - ✅ **super_admin 須先降級才能封存／刪除**（兩步工作流）；**受保護 root 不可降級／封存／刪除**。
 - ✅ 新增 `update`（僅 name）／`change_password`（自助驗舊）／`set_admin_role`（升降權）／`list_admins`；`create` 增參 `is_protected`。**不提供 `reset_password`**（重設他人密碼）。
 - ✅ **密碼變更撤該 principal 全部 refresh token**；改名／升降權**不撤**。
@@ -288,4 +300,4 @@ async def get_row(self, admin_id: int, *, include_deleted: bool = False) -> Admi
 3. **升降權稽核表**（承 model §8.1）。
 4. **transfer ownership（換 root）**：本組不提供（model §2.2）；若需要，另立單列鎖的原子操作。
 5. **reset-others 密碼 / admin email 找回**：**目前不規劃**（§3.3、§6）——一般帳號復原走「軟刪除後重建」。若鎖帳復原痛點浮現，再議 super_admin 重設他人密碼（含 step-up 再認證）或 admin email 找回機制。
-6. **受保護 root 的受控 break-glass（C）**：目前定案為「離線 DBA 直接改 DB」並記 runbook（§6）；是否提供受控的離線復原工具（如 seed script `--reset-root-password`）待排期——非本組交付。
+6. ~~**受保護 root 的受控 break-glass（C）**~~ → **已實作為 SSM 初始 admin**（§3.7/§6/§9）:憑證存 SSM(argon2 雜湊)、不進 DB、恆可登入的 super_admin,取代 seed 並兼任復原路徑。原「離線 DBA 直接改 DB」降為最後手段。

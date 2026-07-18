@@ -32,7 +32,7 @@ from app.core.auth import (
     verify_password_or_dummy,
 )
 from app.core.config import get_app_settings
-from app.core.enums import Role
+from app.core.enums import AdminRole, Role
 from app.core.exceptions import ForbiddenError, UnauthorizedError
 from app.core.security import mask_email
 from app.dtos import (
@@ -49,6 +49,13 @@ from app.repositories.admin import AdminRepository
 from app.repositories.identity import IdentityRepository
 from app.repositories.principal import PrincipalRepository
 from app.repositories.refresh_token import RefreshTokenRepository
+from app.services.initial_admin import (
+    INITIAL_ADMIN_PRINCIPAL_ID,
+    build_initial_admin,
+    initial_admin_enabled,
+    initial_admin_hash,
+    is_initial_admin_username,
+)
 from app.services.user import UserService
 
 logger: logging.Logger = logging.getLogger(__name__)
@@ -190,6 +197,16 @@ class AuthService:
         Raises:
             UnauthorizedError: username 不存在、密碼錯、或帳號封存／軟刪除（統一訊息）
         """
+        # 初始 super admin：憑證存 config／SSM、不進 DB。命中則驗 config 雜湊、只發 access token。
+        if is_initial_admin_username(payload.username):
+            if not await verify_password(payload.password, initial_admin_hash()):
+                raise UnauthorizedError("Invalid username or password")
+            access_token = create_access_token(
+                INITIAL_ADMIN_PRINCIPAL_ID, Role.ADMIN, grade=AdminRole.SUPER_ADMIN.value
+            )
+            logger.info("Initial super admin login success username=%s", payload.username)
+            return TokenPayload(access_token=access_token, refresh_token=None)
+
         # DTO 已正規化 username（strip + lower）
         admin: Admin | None = await self.admin_repo.get_by_username(payload.username)
         # 常數時間：無論帳號是否存在都跑一次 argon2（None → 對 dummy hash），拉平時序防列舉。
@@ -343,6 +360,13 @@ class AuthService:
         principal_id, role = self._decode_access(token)
         if role is not Role.ADMIN:
             raise ForbiddenError("Admin role required")
+
+        # 初始 super admin：哨兵 sub=0 → 合成記憶體 Admin(super_admin)、不查 DB。
+        # 若 config 已停用（清空 INITIAL_ADMIN_*）,舊 token 立即失效（回 401）。
+        if principal_id == INITIAL_ADMIN_PRINCIPAL_ID:
+            if not initial_admin_enabled():
+                raise UnauthorizedError("Admin not found or inactive")
+            return build_initial_admin()
 
         admin: Admin | None = await self.admin_repo.get_by_principal_id(principal_id)
         if admin is None or not admin.is_active:

@@ -1,5 +1,7 @@
 # 規格書（Model 層）：Admin 管理 — 資料模型
 
+> 🔄 **變更註記（初始 admin 整併）**：本文已改寫為「**≥1 super_admin 由 SSM 初始 admin 保證、`is_protected` 為可選休眠硬化**」的模型（§2.1／§2.2）;seed 腳本（`scripts/create_admin.py`）已移除,bootstrap 改走 SSM 初始 admin（見 [`admin-management-service.md`](./admin-management-service.md) §3.7、`app/services/initial_admin.py`）。
+
 > 狀態：**Draft（待實作）** ／ 目標版本：next+2 ／ 開發模式：**嚴格 TDD（見 `CLAUDE.md`）**
 >
 > 📎 本文是「Admin 管理」三份規格的 **Model 層**（資料模型）。另兩份：
@@ -14,7 +16,7 @@
 
 ## 0. 功能總覽（三份規格入口，先讀這裡）
 
-**一句話**：CMS 對「其他 admin 帳號」的完整生命週期管理——登入（既有）＋新增／更新名稱／升降權／改自己密碼／封存／解除封存／軟刪除／復原／列表；並以「**受保護 root**」的單列不變式保證系統永遠 ≥1 位 super_admin。
+**一句話**：CMS 對「其他 admin 帳號」的完整生命週期管理——登入（既有）＋新增／更新名稱／升降權／改自己密碼／封存／解除封存／軟刪除／復原／列表；並以 **SSM 初始 admin** 保證系統永遠 ≥1 位可用的 super_admin（DB 內另備一套**可選、休眠**的單列「受保護 root」硬化）。
 
 **三份規格分層（閱讀順序：本檔 → service → api）**：
 
@@ -41,7 +43,7 @@
 >
 > **前置依賴**：本功能（next+2）依賴 [`rbac.md`](./rbac.md)（next+1）的 `require_min_admin_role` 與 `grade`——**rbac 必須先落地**。
 >
-> **核心決策**：§2.1「受保護 root」把「≥1 super_admin」降為單列不變式（無聚合、無鎖、無 write skew）。
+> **核心決策**：§2.1「≥1 super_admin」由 **SSM 初始 admin** 保證（不碰 DB、無聚合、無鎖、無 write skew）；`is_protected` 為 DB 內**可選、休眠**的單列硬化。
 
 ---
 
@@ -56,7 +58,7 @@
 ### 目標
 
 - 給出 Admin 管理功能的**權威資料模型參考**（欄位、約束、狀態機、不變式）。
-- **新增 `admins.is_protected`**（受保護 root 標記）+ 一支 append-only migration + 一條 `CHECK`，以把「≥1 super_admin」這個**聚合不變式降為單列不變式**（見 §2.1，這是本次設計的核心）。
+- **新增 `admins.is_protected`**（可選的單列「受保護 root」硬化）+ 一支 append-only migration + 兩條 `CHECK`。日常「≥1 super_admin」主保證為 **SSM 初始 admin**（§2.1）；`is_protected` 目前休眠、保留作可選 DB 硬化。
 - 定義 repository 的**列表查詢方法**（時間戳謂詞），屬讀取程式碼。
 - 收斂三個易混淆點：`role` vs `admin_role`、`is_active` 不可進 SQL、成對稽核不變式。
 
@@ -72,36 +74,35 @@
 
 ## 2. 設計決策
 
-### 2.1 用「受保護 root」把「≥1 super_admin」降為單列不變式（核心決策）
+### 2.1 「≥1 super_admin」的保證：SSM 初始 admin（主）＋ 可選的單列受保護 root（休眠）
 
-「系統至少 1 位 super_admin」若以「對 super_admin 集合計數」實作，是一個**集合基數不變式**——併發下會發生 **write skew**（兩個交易各降級／移除不同的 super_admin，各自讀到 count≥2 而放行 → 集合歸零）。防護它需要 `SELECT ... FOR UPDATE` 鎖住整個集合或 SERIALIZABLE，複雜且在 SQLite（測試）測不到。
+「系統至少 1 位可用的 super_admin」若以「對 super_admin 集合計數」實作，是一個**集合基數不變式**——併發下會發生 **write skew**（兩個交易各降級／移除不同的 super_admin，各自讀到 count≥2 而放行 → 集合歸零）。防護它需 `SELECT ... FOR UPDATE` 鎖住整個集合或 SERIALIZABLE，複雜且在 SQLite 測不到。**本設計刻意避開這條路**。
 
-**定案：改用「受保護 root」，把聚合不變式降為單列不變式**——不變式從此**不需要任何計數或鎖**：
+**主保證：SSM-backed「初始 admin」**（見 [`admin-management-service.md`](./admin-management-service.md) §3.7、`app/services/initial_admin.py`）。憑證存 config／SSM（`INITIAL_ADMIN_USERNAME` + `INITIAL_ADMIN_PASSWORD_HASH`）、**不進 `admins` 表**、以哨兵 `principal_id=0` 代表、恆為 `super_admin`、無法被降級／封存／刪除／改密碼／鎖死;只要 SSM 有其雜湊就永遠可登入。故「≥1 active super_admin」**恆成立,且完全不碰 DB——零計數、零鎖、零 write skew**。它比「DB 內的受保護 root」更強:連 DB 都無從影響它。這對應 GitHub org owner / AWS root 帳號的定位:一個**結構上不可移除的擁有者**,其餘（DB 內的）super_admin 可自由增刪。
 
-- 新增 `admins.is_protected: Boolean`（`default False`）。**seed 建立的 bootstrap admin 設 `is_protected = True`**。
-- 配合 service 層**單列守衛**（見 [`admin-management-service.md`](./admin-management-service.md) §3.5，皆只讀 target 自己那一列）：
-  - **受保護 admin 不可被降級／封存／軟刪除**。
-  - （承使用者定案的工作流規則）**任何 super_admin 不可被直接封存／軟刪除**，須先 `set_admin_role` 降為 editor／viewer 才能封存／刪除。
-- **不變式的結構性證明（除 bootstrap 外全由 DB 硬化）**：`is_protected` 的 root 恆存在（seed 建立；**唯一非 DB 保證的 bootstrap 前提**）∧ 受保護者不可降級（app 守衛友善訊息 ＋ `ck_admins_protected_is_super` 已間接硬化：把 protected 改非 super_admin 會違反該 CHECK）∧ 受保護者不可封存／刪除（app 守衛 ＋ **`ck_admins_protected_is_active` 硬化**，§2.3）∧ seed 建它為 `super_admin`（＋ `ck_admins_protected_is_super`）→ **root 永遠是 active super_admin**。故 super_admin 數**永遠 ≥ 1**，且**全程只需單列判斷、零聚合、零鎖、零 write skew**。除「seed 建立 root」這個本質前提外，四個合取項**全部由 DB 結構保證**，不再有任一項只依賴應用層守衛。
+**可選的 DB 層硬化：`admins.is_protected`（單列受保護 root，現為休眠）。** 保留 `is_protected` 欄 + service 單列守衛 + 兩條 CHECK（§2.3），作為「把某個 **DB** super_admin 標記為結構上不可移除」的**可選**機制。其設計沿用**單列不變式**（皆只讀 target 自己那一列、零聚合、零鎖、零 write skew——正是為避開上述集合鎖而設計）：
 
-> **這是「把全域不變式降成單列不變式」的標準工程手法**：能降就降——單列不變式沒有併發異常、可決定性測試。此模型即 GitHub org owner / GCP Organization owner / AWS root 帳號的做法：有一個結構上不可移除的擁有者，其餘 super_admin 可自由增刪。
+- 配合 service 單列守衛（見 service §3.5）：**受保護者不可被降級／封存／軟刪除**;且（工作流規則）**任何 super_admin 須先 `set_admin_role` 降級才能封存／刪除**。
+- 受保護者恆為 active super_admin,除「誰把它建為 protected」外全由兩條 CHECK 結構保證（§2.3）。
+- **但目前休眠**：seed 已移除、管理 API 恆建 `is_protected=False`、且不提供切換端點 → **預設無任何 DB 列被標 protected**。日常的「≥1 super_admin」由 SSM 初始 admin 承擔，不依賴它;若未來想在 DB 內也釘一個不可移除的 owner，才用此機制（例如以一次性 script 標記）。
 
-> **代價（誠實揭露）**：這使本功能**不再是「零 schema 增量」**——需 **+1 欄 `is_protected` + 2 條單列 CHECK + 1 支 migration**。此取捨划算：以「一個布林欄 + 兩條單列 CHECK」換掉「整套集合鎖 + 併發推理 + SQLite 測不到的 race」，淨簡化且更貼近真實平台做法。
+> **代價（誠實揭露）**：`is_protected` 機制對 schema 的增量＝**+1 欄 + 2 條單列 CHECK + 1 支 migration**。即使目前休眠仍保留在 schema／code（migration 已部署、不可變），作為零聚合、零鎖的可選硬化。
 
-### 2.2 `is_protected` 由 seed 設定、**管理 API 不可切換**（避免又變回聚合問題）
+### 2.2 `is_protected` 的性質：可選、單列、不可經 API 切換
 
-- `is_protected` **只在 seed 建立 root 時設 `True`**；**管理 API 一律建立 `is_protected=False` 的一般 admin、且不提供切換 `is_protected` 的端點**。
-- 理由：若允許任意「取消保護」，就會冒出「不可取消最後一個受保護者」這種**新的聚合不變式** → write skew 回歸。故最單純安全的定案是 **`is_protected` 建立後不可變（seed-only）**。
-- **允許多個受保護 root**（更穩健）：`is_protected` 無唯一約束；只要**曾有 ≥1 個**受保護 super_admin（seed 保證），且受保護者不可移除，不變式即恆成立——**無需「恰好一個」的基數約束**（那又會是聚合問題）。
-- **繼任（transfer ownership）** 屬 out of scope；若未來需要「換 root」，另立一個**專屬、單列鎖**的原子操作（把 `is_protected` 由舊 root 搬到新 root，鎖當前 root 單列即可，屬 lost-update 範疇、非 write skew）。本組不提供。
-
-> **系統前置條件**：正確性依賴 **seed 在 bootstrap 時建立至少一位 `is_protected=True` 的 super_admin**。fresh 安裝由 seed（冪等）保證；既有安裝以一次性資料步驟把 bootstrap admin 標為 protected（見 §3.6 migration 註）。
+- `is_protected` **無自動建立點**（seed 已移除）;**管理 API 一律建立 `is_protected=False`、且不提供切換端點**。若要標記，走 DB／一次性 script（out of scope 於管理 API）。
+- **不提供「取消保護」切換**：若允許任意取消，就會冒出「不可取消最後一個受保護者」這種**新的聚合不變式** → write skew 回歸。故若使用 `is_protected`，一律**建立後不可變**。
+- **允許多個受保護 root**：`is_protected` 無唯一約束、無「恰好一個」的基數約束（那又是聚合問題）。
+- **繼任（transfer ownership）** 屬 out of scope。
+- ⚠️ **不再有「seed 建 protected super_admin」這個系統前置條件**：`≥1 super_admin` 改由 SSM 初始 admin 保證（§2.1），不依賴任何 DB protected 列。
 
 ### 2.3 兩條單列 CHECK 硬化受保護 root（`protected ⟹ super_admin` ＋ `protected ⟹ active`）
 
 **CHECK 一** `CheckConstraint("is_protected = 0 OR admin_role = 'super_admin'", name="ck_admins_protected_is_super")`：DB 層保證**受保護者必為 super_admin**（integrity-first，對齊既有 `ck_admins_admin_role` 風格）。搭配「受保護者不可降級」的 app 守衛（防呆友善訊息），形成雙保險——即使繞過 service，DB 也擋下「把 protected 改成非 super_admin」或「建立 protected 的非 super_admin」。此 CHECK 同時**間接硬化「受保護者不可降級」**：任何把 protected 降為 editor／viewer 的寫入都違反它。
 
-**CHECK 二（本次補強，A）** `CheckConstraint("is_protected = 0 OR (archived_at IS NULL AND deleted_at IS NULL)", name="ck_admins_protected_is_active")`：DB 層保證**受保護者恆為 active**（未封存、未軟刪除）。理由——§2.1 結構性證明的四個合取項中，「必為 super_admin」與「不可降級」已由 CHECK 一硬化，唯獨「**受保護者不可封存／刪除**」原本**只靠 app 守衛**。補這條後，「root 永遠是 active super_admin」除 bootstrap（seed 建立）這個本質前提外**全部由 DB 結構保證**，不再有任一合取項只依賴應用層。此 CHECK 只擋「封存／刪除受保護 root」這個設計上不該發生的操作，正常流程碰不到；service 的受保護守衛保留作友善訊息（422），DB CHECK 作結構兜底（`IntegrityError`）。
+**CHECK 二（A）** `CheckConstraint("is_protected = 0 OR (archived_at IS NULL AND deleted_at IS NULL)", name="ck_admins_protected_is_active")`：DB 層保證**受保護者恆為 active**（未封存、未軟刪除）。理由——`protected ⟹ super_admin`（CHECK 一）與「不可降級」已由 CHECK 一硬化，「受保護者不可封存／刪除」原本只靠 app 守衛;補這條後,`protected ⟹ super_admin` ＋ `protected ⟹ active` 使「受保護者恆為 active super_admin」**全由 DB 結構保證**（只剩「誰把它建為 protected」是非 DB 前提）。此 CHECK 只擋「封存／刪除受保護 root」這個設計上不該發生的操作，正常流程碰不到；service 的受保護守衛保留作友善訊息（422），DB CHECK 作結構兜底（`IntegrityError`）。
+
+> 這兩條 CHECK 只在 `is_protected=True` 的列上有意義;目前預設無 protected 列（§2.1 休眠），故 CHECK 恆滿足（`is_protected=0` 短路）,屬「若未來使用 is_protected 即自動生效」的結構保險。
 
 > **布林比較方言**：`is_protected = 0` 對齊既有 `ck_admins_role_admin`（`role = 1`）風格，於 MariaDB（BOOLEAN=TINYINT）／SQLite（0/1）皆正確（本專案已由 PostgreSQL 切換至 MariaDB）。
 
@@ -142,7 +143,7 @@
 | `name` | `String(100)` | | 顯示名稱（可更新） |
 | `password_hash` | `String(255)` | | argon2id（可更新） |
 | `admin_role` | `String(20)` | 預設 `viewer`；`CHECK IN (...)` | 權限等級（set_admin_role 更新） |
-| **`is_protected`** | **`Boolean`** | **`default False` / `server_default false`（本組新增）** | **受保護 root 標記（seed-only、不可經 API 切換，§2.2）** |
+| **`is_protected`** | **`Boolean`** | **`default False` / `server_default false`（本組新增）** | **受保護 root 標記（可選、不可經 API 切換；預設無列被標，§2.2）** |
 | `archived_at` / `archived_by` | `DateTime(tz)` / `int` nullable | `by` FK→principals `SET NULL` | 封存（成對稽核） |
 | `deleted_at` / `deleted_by` | `DateTime(tz)` / `int` nullable | `by` FK→principals `SET NULL` | 軟刪除（成對稽核） |
 | `created_at` / `updated_at` | `DateTime(tz)` | Base（`onupdate`） | |
@@ -181,7 +182,7 @@ def is_active(self) -> bool:
 4. **`admin_role` 值域** ∈ `{super_admin, editor, viewer}`（CHECK）。
 5. **`protected ⟹ super_admin`**（CHECK，§2.3）。
 6. **`protected ⟹ active`**（CHECK，§2.3；受保護者恆未封存未刪除，A）。
-7. **≥1 active super_admin**（由 §2.1 的 protected root **結構性保證**，非以計數維持；除 bootstrap 外全由 CHECK 5＋6 硬化）。
+7. **≥1 active super_admin**（由 §2.1 的 **SSM 初始 admin 保證**，非以計數維持、不依賴 DB protected 列；`is_protected`（若使用）另由 CHECK 5＋6 硬化）。
 
 ---
 
@@ -204,7 +205,7 @@ def is_active(self) -> bool:
 
 ## 5. 安全性考量（資料層）
 
-- **不變式無併發異常**：≥1 super_admin 由單列 protected 守衛保證，**不存在 write skew**，也不需鎖或 SERIALIZABLE（§2.1）。
+- **不變式無併發異常**：≥1 super_admin 由 **SSM 初始 admin** 保證（§2.1，不碰 DB），**不存在 write skew**、不需鎖或 SERIALIZABLE；`is_protected`（若使用）亦為單列、無鎖。
 - **雙保險**：app 守衛（友善訊息）＋ `ck_admins_protected_is_super`（DB 硬化）共同確保受保護者恆為 super_admin。
 - **`is_protected` 不可經 API 切換**：杜絕「取消最後一個保護」重新引入聚合問題（§2.2）。
 - **稽核完整性**：`*_by` 為 `SET NULL`，操作者被移除不連坐被稽核列。
@@ -218,20 +219,22 @@ def is_active(self) -> bool:
 
 > ⚠️ **不就地修訂 `c3d4e5f6a7b8`**：該 revision **已合併並 push 至 `origin/main`（已共享）**，依「已部署／已共享 revision 不可變」原則（admin-account-refinement §3.2），本欄位改以**新增 append-only revision** 交付（與當時 `c3d4e5f6a7b8` 仍在未合併分支、可就地修訂的情境不同）。
 
-`upgrade()`（**順序有意義**——先建欄、標記 root、最後才加 CHECK，確保加 CHECK 時所有列皆已合規）：
+已交付的 migration（`e5f6a7b8c9d0`，已 push／不可變）`upgrade()`（順序有意義——先建欄、標記、最後才加 CHECK，確保加 CHECK 時所有列皆已合規）：
 - `ADD COLUMN is_protected BOOLEAN NOT NULL DEFAULT false`（既有列由 `server_default` 自動填 `false`）。
-- **標記既有 root（B，折入 migration）**：`UPDATE admins SET is_protected = 1 WHERE admin_role = 'super_admin' AND archived_at IS NULL AND deleted_at IS NULL`——把現存所有 **active** super_admin 標為受保護。因 admin 已無 email、無法用 `WHERE email` 精準指定 bootstrap root，「標記所有現存 active super_admin」反而最確定安全（允許多個 protected root，§2.2）。此步**在同一支 migration 內**完成，消除「先 ADD COLUMN（root 變 unprotected）→ 另行人工標記」之間的**不變式空窗**（fresh 安裝無列，此 `UPDATE` 為 no-op）。
+- **遷移相容標記**：`UPDATE admins SET is_protected = 1 WHERE admin_role = 'super_admin' AND archived_at IS NULL AND deleted_at IS NULL`——把遷移當下**既有的** active super_admin 保守標為 protected。
+  - **fresh 安裝**（新模型的常態:bootstrap 走 SSM 初始 admin、無 DB super_admin）→ 此 `UPDATE` 為 **no-op**，落地後**無任何 protected 列**，符合 §2.1「is_protected 休眠」。
+  - **既有安裝**（舊 seed 曾建過 DB super_admin）→ 把當時的 super_admin 標為不可移除，屬**保守預設**（不破壞、可日後手動 `UPDATE ... SET is_protected=0` 解除）。
 - `ADD CONSTRAINT ck_admins_protected_is_super CHECK (is_protected = 0 OR admin_role = 'super_admin')`。
 - `ADD CONSTRAINT ck_admins_protected_is_active CHECK (is_protected = 0 OR (archived_at IS NULL AND deleted_at IS NULL))`（A）。
 
-`downgrade()`：對稱 drop 兩條 CHECK 與 `is_protected` 欄（`UPDATE` 標記隨欄位移除而消失，無需獨立 down 步驟）。
+`downgrade()`：對稱 drop 兩條 CHECK 與 `is_protected` 欄。
 
-> **布林方言可攜**：比照既有 migration，`server_default` 依方言取字面值（PostgreSQL `false`／MySQL·MariaDB·SQLite `0`）。測試走 SQLite `create_all`（不經 migration）→ model 加 `is_protected` 與 CHECK 即反映。真 MariaDB 驗 upgrade/downgrade。
+> **布林方言可攜**：`server_default` 依方言取字面值（MariaDB·SQLite `0`）。測試走 SQLite `create_all`（不經 migration）→ model 加 `is_protected` 與 CHECK 即反映。真 MariaDB 驗 upgrade/downgrade。
 
-### 6.2 既有安裝的 root 標記（已折入 migration，B）
+### 6.2 bootstrap 與既有安裝
 
-- **fresh 安裝**：seed 建 bootstrap admin 時直接 `is_protected=True`（見 [`admin-management-service.md`](./admin-management-service.md) create 增參與 seed）。
-- **既有安裝**（已有 bootstrap super_admin）：**由 §6.1 `upgrade()` 內的 `UPDATE ... WHERE admin_role='super_admin' AND active` 自動標記**——不再是獨立的人工營運步驟。如此消除「ADD COLUMN 後、標記前」的不變式空窗，部署一步到位、少一個人為疏漏點；冪等 seed 仍作為 fresh 安裝的建立點。
+- **bootstrap（第一位 super admin）**：改由 **SSM 初始 admin**（`INITIAL_ADMIN_*`，不進 DB），登入後建立 DB admin——見 [`admin-management-service.md`](./admin-management-service.md) §3.7。**不再有 seed 腳本建 DB root**。
+- **既有安裝**：§6.1 的遷移相容 `UPDATE` 已把當時的 active super_admin 保守標為 protected（如上）;若不需要,可事後手動解除。新增的 DB admin 一律 `is_protected=False`。
 
 ---
 
@@ -253,11 +256,11 @@ def is_active(self) -> bool:
 
 ## 8. 已定案決策
 
-- ✅ **受保護 root**：新增 `admins.is_protected`，把「≥1 super_admin」由聚合不變式降為**單列不變式**——**無聚合、無鎖、無 write skew**（§2.1）。
-- ✅ **`is_protected` seed-only、API 不可切換、可多個**（避免重新引入聚合問題，§2.2）。
-- ✅ **兩條單列 CHECK**：`protected ⟹ super_admin` ＋ `protected ⟹ active` DB 硬化（§2.3，A）——「root 恆 active super_admin」除 bootstrap 外全由 DB 保證。
-- ✅ **既有安裝 root 標記折入 migration `upgrade()`**（`UPDATE ... WHERE super_admin AND active`），消除不變式空窗（§6，B）。
-- ✅ 本功能對 schema 增量＝**`is_protected` 一欄 + 兩條 CHECK + 一支 append-only migration**（誠實揭露，取捨划算）。
+- ✅ **「≥1 super_admin」主保證＝SSM 初始 admin**（不進 DB、恆可登入、無法鎖死）——**無聚合、無鎖、無 write skew**，比 DB 內受保護 root 更強（§2.1）。
+- ✅ **`is_protected` 為可選、休眠的 DB 單列硬化**：保留欄 + 守衛 + 兩條 CHECK,但**預設無列被標 protected**（seed 已移除、API 恆建 False、無切換端點，§2.1／§2.2）。
+- ✅ **兩條單列 CHECK**：`protected ⟹ super_admin` ＋ `protected ⟹ active` DB 硬化（§2.3，A）——一旦使用 is_protected 即自動生效（休眠時恆滿足）。
+- ✅ **migration 保守相容標記**：`UPDATE ... WHERE super_admin AND active`;fresh 安裝 no-op（無 protected 列），既有安裝保守標記可事後解除（§6）。
+- ✅ 本功能對 schema 增量＝**`is_protected` 一欄 + 兩條 CHECK + 一支 append-only migration**（誠實揭露）。
 - ✅ 移除 `count_active_super_admins`（不再需要聚合計數）；保留 `list_admins`／`count_admins`（§4）。
 - ✅ 不加 `updated_by`（§2.4）；`username` 不可變（§2.5）；`role` vs `admin_role` 正交（§2.6）；列表用時間戳謂詞（§2.7）。
 

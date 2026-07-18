@@ -1,5 +1,7 @@
 # 規格書：型別內權限等級（方案 A — 等級 enum）
 
+> 🔄 **變更註記（初始 admin 整併）**：seed 腳本已**移除**;初始 super admin 改為 SSM-backed「初始 admin」（`INITIAL_ADMIN_USERNAME` + `INITIAL_ADMIN_PASSWORD_HASH`，不進 DB、恆 `super_admin`、只發 access token；`app/services/initial_admin.py`）。故 §5.6「seed 佈 SUPER_ADMIN」不再適用——初始 super admin 直接由 SSM 憑證登入(合成 super_admin,不寫 `admins` 表)。`AdminRole` enum／`admin_role` 欄／授權面不受影響。
+
 > 狀態：Draft ／ 目標版本：next+1 ／ 開發模式：**嚴格 TDD（見 `CLAUDE.md`）**
 >
 > 📎 關鍵設計決策與取捨（為什麼這樣設計）另記於 [`../decisions/rbac.md`](../decisions/rbac.md)。本文聚焦「怎麼做」。
@@ -205,9 +207,9 @@ def require_min_tier(minimum: UserTier):
 - **`grade` 非授權邊界**：前端竄改解出的值無效——授權由後端 `require_min_admin_role` 讀 child 現值判定（見 §7、決策 R5）。
 - **等級變更即時生效**（如降權/付費升級）：後端變更後，前端**強制 refresh 一次** token（或重打 `/me`）。
 
-### 5.6 Seed script
+### 5.6 初始 admin（SSM，取代 seed）
 
-**已由 admin-account-refinement 交付**：`scripts/create_admin.py` 於建立初始 admin 時直接傳 `admin_role=AdminRole.SUPER_ADMIN`（見其 §4）。本規格無需再動 seed。
+**seed 腳本已移除。** 初始 super admin 改為 **SSM-backed**（`INITIAL_ADMIN_USERNAME` + `INITIAL_ADMIN_PASSWORD_HASH`，argon2 雜湊；不進 DB、哨兵 `principal_id=0`；`app/services/initial_admin.py`）。故原「seed 佈 `SUPER_ADMIN`」不再適用——初始 admin 於登入時**合成** `super_admin`（access token 的 `grade=super_admin`），不寫 `admins` 表。本規格的 `grade`／授權機制不受影響（`require_min_admin_role` 讀合成 Admin 的 `admin_role` 現值，判為 super_admin）。
 
 ---
 
