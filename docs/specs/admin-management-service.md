@@ -5,7 +5,7 @@
 > - **bootstrap 流程**:設定 SSM 的 `INITIAL_ADMIN_*` → 以它登入 → 建立 DB admin。
 > - §3.7（Seed）、§6（復原）已據此改寫;其餘提及 seed／受保護 root 之處以本註記為準。
 
-> 狀態：**Draft（待實作）** ／ 目標版本：next+2 ／ 開發模式：**嚴格 TDD（見 `CLAUDE.md`）**
+> 狀態：**已實作（✅ 547 tests 全綠，ruff / pyright 通過）** ／ 目標版本：next+2 ／ 開發模式：**嚴格 TDD（見 `CLAUDE.md`）**
 >
 > 📎 本文是「Admin 管理」三份規格的 **Service 層**（業務邏輯）。另兩份：
 > - [`admin-management-model.md`](./admin-management-model.md)（資料模型層）

@@ -2,7 +2,7 @@
 
 > 🔄 **變更註記（初始 admin 整併）**：本文已改寫為「**≥1 super_admin 由 SSM 初始 admin 保證、`is_protected` 為可選休眠硬化**」的模型（§2.1／§2.2）;seed 腳本（`scripts/create_admin.py`）已移除,bootstrap 改走 SSM 初始 admin（見 [`admin-management-service.md`](./admin-management-service.md) §3.7、`app/services/initial_admin.py`）。
 
-> 狀態：**Draft（待實作）** ／ 目標版本：next+2 ／ 開發模式：**嚴格 TDD（見 `CLAUDE.md`）**
+> 狀態：**已實作（✅ 547 tests 全綠，ruff / pyright 通過）** ／ 目標版本：next+2 ／ 開發模式：**嚴格 TDD（見 `CLAUDE.md`）**
 >
 > 📎 本文是「Admin 管理」三份規格的 **Model 層**（資料模型）。另兩份：
 > - [`admin-management-service.md`](./admin-management-service.md)（業務邏輯層）

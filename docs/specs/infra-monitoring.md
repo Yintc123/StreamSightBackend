@@ -1,6 +1,6 @@
 # 規格書：Infra Monitoring 模組（基礎設施指標採集）
 
-> 狀態：**已實作（✅ 529 tests 全綠，ruff / pyright 通過）** ／ 目標版本：next ／ 開發模式：**嚴格 TDD（見 `CLAUDE.md`）**
+> 狀態：**已實作（✅ 547 tests 全綠，ruff / pyright 通過）** ／ 目標版本：next ／ 開發模式：**嚴格 TDD（見 `CLAUDE.md`）**
 >
 > **語言**：繁體中文。
 >
@@ -373,7 +373,7 @@ def compute_buffer_pool_hit_rate(
 class InfraSampler:
     def __init__(
         self,
-        probe: InfraProbe,
+        probe: _ProbeProtocol,         # 實作用 Protocol（struct subtyping），接受 InfraProbe 或相容 stub
         redis: Redis,
         redis_key: str,
         interval_seconds: int,
@@ -414,6 +414,31 @@ class InfraSampler:
 ---
 
 ## 5. 端點規格
+
+### `GET /health/node-exporter`
+
+| 項目 | 說明 |
+|---|---|
+| 認證 | **不需要**（health check 公開端點） |
+| DI | `settings: BaseAppSettings = Depends(get_app_settings)` |
+| 查詢參數 | 無 |
+| 成功（可達） | 200 + `{"status":"ok","response_time_ms":<float>,"error":null}` |
+| 不可達 | 200 + `{"status":"unreachable","response_time_ms":null,"error":"<訊息>"}` |
+| 逾時 / HTTP 錯誤 | 同上（`httpx.TransportError` / `httpx.HTTPStatusError` 均捕獲） |
+
+對 `{monitoring_infra_node_exporter_url}/metrics` 發 GET，timeout 5 秒；回應固定 200（health check 不用 5xx 阻止監控系統得知狀態）。
+
+### `GET /health/mysqld-exporter`
+
+與 `GET /health/node-exporter` 語意完全一致，URL 改為 `{monitoring_infra_mysqld_exporter_url}/metrics`。
+
+```python
+# HealthExporterResponse（schemas.py）
+class HealthExporterResponse(BaseModel):
+    status: str               # "ok" | "unreachable"
+    response_time_ms: float | None = None
+    error: str | None = None
+```
 
 ### `GET /admin/monitoring/infra`
 
@@ -479,9 +504,11 @@ async def get_infra(
 - `fetch_node_metrics` 多 core 情況：`cpu_idle_total` = 所有 core idle 加總，`cpu_all_total` = 所有 core 所有 mode 加總。
 - `fetch_node_metrics` 磁碟 fstype 過濾：Prometheus text 同時含 `mountpoint="/"` 的 `tmpfs` 與 `ext4` series → `disk_avail` / `disk_size` 取 `ext4` 那筆（虛擬 fs 被排除）。
 - `fetch_node_metrics` 磁碟 fstype 全為虛擬 fs（如只有 `tmpfs`）→ `disk_avail = 0, disk_size = 0`。
+- `fetch_node_metrics` 磁碟 reads/writes 為多裝置加總：`disk_reads_total` = 所有 device 的 reads 加總，`disk_writes_total` = 所有 device 的 writes 加總（`test_fetch_node_metrics_disk_reads_aggregated`）。
 - `fetch_mysql_metrics` 回傳含 §3.3 所有 key 的 dict。
-- exporter 回 5xx → 拋 `InfraProbeError`。
-- exporter 連線失敗（`httpx.TransportError`）→ 拋 `InfraProbeError`。
+- node-exporter 回 5xx → `fetch_node_metrics` 拋 `InfraProbeError`（`test_fetch_node_metrics_5xx_raises_probe_error`）。
+- mysqld-exporter 回 5xx → `fetch_mysql_metrics` 拋 `InfraProbeError`（`test_fetch_mysql_metrics_5xx_raises_probe_error`）。
+- exporter 連線失敗（`httpx.TransportError`）→ `fetch_node_metrics` 拋 `InfraProbeError`。
 - `aclose()` 呼叫後 underlying `httpx.AsyncClient` 已關閉（驗 `client.is_closed`）。
 
 ### 6.2 計算純函式（unit）
@@ -514,11 +541,20 @@ async def get_infra(
 - `_tick()` 一次 → Redis Sorted Set 有 1 筆（`ZCARD == 1`），反序列化後結構符合 `InfraSnapshot`，score 對應 `ts`。
 - `_tick()` 寫入的 score 等於快照的 `ts` 欄位（`ZSCORE redis_key member == snapshot.ts`）。
 - `ZREMRANGEBYSCORE` 生效：建立一筆 `ts = now - (retention_hours + 1) * 3600 * 1000` 的舊資料後執行 `_tick()`，舊資料應被清除（`ZCARD` 減少）。
-- probe 拋 `InfraProbeError` → 只 log warning，Redis Sorted Set 不新增（`ZCARD` 不變），循環不中斷（連續 `_tick()` 可繼續）。
+- probe 拋 `InfraProbeError` → 只 log warning，Redis Sorted Set 不新增（`ZCARD` 不變），循環不中斷（`test_tick_probe_error_skips_write`）。
+- probe 先失敗後恢復：第一次 `_tick()` 失敗（`ZCARD == 0`），替換為正常 probe 後第二次 `_tick()` 成功寫入（`ZCARD == 1`）（`test_tick_probe_error_then_success`）。
 - 連續兩次 `_tick()`（probe 正常）→ 第二筆的 `cpu_percent` 不為 null（前次快照存在）。
 - 第一次 `_tick()` → 第一筆的 `cpu_percent` 為 null、`disk_read_iops` 為 null。
 
-### 6.4 `GET /admin/monitoring/infra`（integration）✅
+### 6.4 `GET /health/node-exporter` / `GET /health/mysqld-exporter`（integration）✅
+
+mock `httpx.AsyncClient`（`patch("app.api.routers.health.router.httpx.AsyncClient")`），驗：
+
+- mock 回 200 → 200 + `status=ok` + `response_time_ms >= 0` + `error=null`
+- mock 拋 `httpx.ConnectError` → 200 + `status=unreachable` + `error 非空` + `response_time_ms=null`
+- `node-exporter` / `mysqld-exporter` 各自測 ok + unreachable 共 4 個測試
+
+### 6.5 `GET /admin/monitoring/infra`（integration）✅
 
 四種時間範圍情境（對應 §2.4）全部覆蓋：
 
@@ -544,9 +580,10 @@ async def get_infra(
 5. `InfraSampler`（unit 測試：§6.3，fakeredis + 假 probe；驗 ZADD / ZREMRANGEBYSCORE 語意）。
 6. `app/app.py` lifespan 掛載 `InfraSampler`（lifespan 建立 `httpx.AsyncClient` + `InfraProbe`，條件：`monitoring_infra_enabled and app_env != test`）。
 7. `app/core/exceptions/base.py` 新增 `ServiceUnavailableError`（`status_code=503, error_code="service_unavailable"`）。**`BadRequestError`（400）已存在於既有例外體系（已驗證），直接沿用，不重複新增。** unit 測試只驗 `ServiceUnavailableError` 的 `status_code` 與 `error_code`。
-8. `GET /admin/monitoring/infra` 端點（integration 測試：§6.4，含時間範圍查詢與驗證錯誤案例）。
-9. 提交前檢查全綠（`ruff check` / `ruff format --check` / `pyright` / `pytest`）。
-10. 真 node-exporter + mysqld-exporter 煙霧測試（手動驗證 compose 啟動後端點回傳非空，含帶 / 不帶查詢參數兩種呼叫）。
+8. `GET /admin/monitoring/infra` 端點（integration 測試：§6.5，含時間範圍查詢與驗證錯誤案例）。
+9. `GET /health/node-exporter` + `GET /health/mysqld-exporter`（`HealthExporterResponse` schema + `_check_exporter` 輔助函式；integration 測試：§6.4，mock httpx ok / unreachable 共 4 個測試）。
+10. 提交前檢查全綠（`ruff check` / `ruff format --check` / `pyright` / `pytest`）。
+11. 真 node-exporter + mysqld-exporter 煙霧測試（手動驗證 compose 啟動後端點回傳非空，含帶 / 不帶查詢參數兩種呼叫）。
 
 ---
 
@@ -563,7 +600,8 @@ async def get_infra(
 | Redis 序列化 | `json.dumps(snapshot.model_dump())`；讀取 `json.loads` |
 | 回傳排序 | **由舊到新**（`ZRANGEBYSCORE` 天然升冪，無需 `reversed()`） |
 | 時間範圍查詢 | `?start_ms=&end_ms=`（均選填，epoch ms）；預設查詢最近 1 小時；超出保留窗口拒絕（400） |
-| httpx client | lifespan 建立 `httpx.AsyncClient` 並傳入 `InfraProbe`，`InfraProbe` 再注入 `InfraSampler`；`stop()` 呼叫 `probe.aclose()` → `client.aclose()`（封裝清理，不洩漏私有屬性） |
+| httpx client | lifespan 建立 `httpx.AsyncClient` 並傳入 `InfraProbe`，`InfraProbe` 再注入 `InfraSampler`；`stop()` 呼叫 `probe.aclose()` → `client.aclose()`（封裝清理，不洩漏私有屬性）。health check 端點各自建短命 client（per-request），不共用 lifespan client |
+| health check 端點 | `GET /health/node-exporter` + `GET /health/mysqld-exporter`；公開（不需 auth）；可達回 200+ok，不可達回 200+unreachable（不用 5xx，避免監控系統誤判）；timeout 5 秒；`httpx.TransportError`/`HTTPStatusError` 均捕獲 |
 | Redis 503 | endpoint 以 `try/except RedisError` → `raise ServiceUnavailableError`；由全域 handler 統一格式化，帶 `request_id` |
 | 計算公式防除零 | `Δtotal=0` → cpu null；`mem_total=0` → 0.0；`disk_size=0` → 0.0；`read_requests=0` → null |
 | parser | `prometheus_client.parser.text_string_to_metric_families`（非 openmetrics） |

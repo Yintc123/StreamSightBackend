@@ -1,3 +1,6 @@
+import time
+
+import httpx
 import redis.asyncio as redis
 from fastapi import APIRouter, Depends
 from sqlalchemy import text
@@ -11,6 +14,7 @@ from app.core.exceptions import BusinessRuleError, NotFoundError
 from .schemas import (
     ErrorResponse,
     HealthDbResponse,
+    HealthExporterResponse,
     HealthRedisResponse,
     HealthResponse,
     TestErrorResponse,
@@ -53,6 +57,37 @@ def test_error(kind: str) -> TestErrorResponse:
 async def health_db(db: AsyncSession = Depends(get_session)) -> HealthDbResponse:
     result: Result[tuple[int]] = await db.execute(text("SELECT 1"))
     return HealthDbResponse(db="ok", result=result.scalar_one())
+
+
+async def _check_exporter(url: str) -> HealthExporterResponse:
+    """對 exporter /metrics 發 GET；可達回 ok+elapsed，不可達回 unreachable+error。"""
+    start = time.perf_counter()
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(5.0)) as hc:
+            resp = await hc.get(url)
+            resp.raise_for_status()
+        elapsed_ms = round((time.perf_counter() - start) * 1000, 1)
+        return HealthExporterResponse(status="ok", response_time_ms=elapsed_ms)
+    except (httpx.TransportError, httpx.HTTPStatusError) as exc:
+        return HealthExporterResponse(status="unreachable", error=str(exc))
+
+
+@router.get("/node-exporter", response_model=HealthExporterResponse)
+async def health_node_exporter(
+    settings: BaseAppSettings = Depends(get_app_settings),
+) -> HealthExporterResponse:
+    """確認 node-exporter 可達性（不需 auth）。"""
+    url = settings.monitoring_infra_node_exporter_url.rstrip("/") + "/metrics"
+    return await _check_exporter(url)
+
+
+@router.get("/mysqld-exporter", response_model=HealthExporterResponse)
+async def health_mysqld_exporter(
+    settings: BaseAppSettings = Depends(get_app_settings),
+) -> HealthExporterResponse:
+    """確認 mysqld-exporter 可達性（不需 auth）。"""
+    url = settings.monitoring_infra_mysqld_exporter_url.rstrip("/") + "/metrics"
+    return await _check_exporter(url)
 
 
 @router.get("/redis")

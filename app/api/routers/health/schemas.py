@@ -33,3 +33,11 @@ class HealthDbResponse(BaseModel):
 class HealthRedisResponse(BaseModel):
     redis: str = Field(description="Redis connectivity status")
     ping: bool = Field(description="Result of Redis PING (True = PONG)")
+
+
+class HealthExporterResponse(BaseModel):
+    status: str = Field(description="'ok' 或 'unreachable'")
+    response_time_ms: float | None = Field(
+        default=None, description="可達時的 HTTP 回應時間（毫秒）"
+    )
+    error: str | None = Field(default=None, description="不可達時的錯誤訊息")

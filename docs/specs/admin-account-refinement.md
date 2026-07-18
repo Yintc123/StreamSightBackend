@@ -2,7 +2,7 @@
 
 > 🔄 **變更註記（後續演進，晚於本文）**：本文描述的 **seed script（`scripts/create_admin.py`）與 `initial_admin_password`（明文）／`initial_admin_name` 用於建立 DB 初始 admin 之部分已不適用**。現況:第一位 super admin 改為 **SSM-backed「初始 admin」**（`INITIAL_ADMIN_USERNAME` + `INITIAL_ADMIN_PASSWORD_HASH` 雜湊；**不進 DB**、哨兵 `principal_id=0`、恆 `super_admin`；`app/services/initial_admin.py`），登入後用它建立 DB admin;**seed 腳本已移除**。config 現為 `initial_admin_username` / `initial_admin_name`（可選顯示名）/ `initial_admin_password_hash`。下文凡提及「seed script／`initial_admin_password`（明文）」處以本註記為準（見 [`admin-management-service.md`](./admin-management-service.md) §3.7）。本文的 username 登入／封存軟刪除／`admin_role` 欄等其餘設計不受影響。
 
-> 狀態：**Draft（待實作，設計已定案）** ／ 目標版本：next ／ 開發模式：**嚴格 TDD（見 `CLAUDE.md`）**
+> 狀態：**已實作（✅ 547 tests 全綠，ruff / pyright 通過）** ／ 目標版本：next ／ 開發模式：**嚴格 TDD（見 `CLAUDE.md`）**
 >
 > 🔗 依賴並延伸 [`jwt-role-and-admin.md`](./jwt-role-and-admin.md)——本規格只調整既有 **`Admin` child 模型**與其認證／管理路徑，`principals` supertype、複合 FK、JWT role、refresh token 擁有者機制**一律沿用不動**。
 >

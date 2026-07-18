@@ -31,6 +31,7 @@ class _ProbeProtocol(Protocol):
     async def fetch_mysql_metrics(self) -> dict: ...
     async def aclose(self) -> None: ...
 
+
 logger = logging.getLogger(__name__)
 
 
