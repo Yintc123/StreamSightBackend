@@ -72,7 +72,7 @@
 
 ### 2.5 Rotation 的原子性（避免並發重複發 token）
 
-「讀出舊 token → 標記 revoked → 發新 token」若是先讀後寫（read-then-write），在正式 DB（Postgres）上會有 **race condition**：同一個 R1 被並發送出兩次（前端重試、雙擊）時，兩個請求都可能讀到 R1 為 active → 各自發一個 child token，rotation 鏈分岔、reuse detection 失準。
+「讀出舊 token → 標記 revoked → 發新 token」若是先讀後寫（read-then-write），在正式 DB（MariaDB）上會有 **race condition**：同一個 R1 被並發送出兩次（前端重試、雙擊）時，兩個請求都可能讀到 R1 為 active → 各自發一個 child token，rotation 鏈分岔、reuse detection 失準。
 
 **解法**：把「消費舊 token」做成**單一條件式原子 UPDATE**——
 `UPDATE refresh_tokens SET revoked_at=:now, replaced_by_id=... WHERE id=:id AND revoked_at IS NULL`，
