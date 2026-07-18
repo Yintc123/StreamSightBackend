@@ -146,6 +146,25 @@ USER_TIER_RANK: dict[UserTier, int] = {
 >
 > ⚠️ 前端讀 `grade` 僅為 **UX 提示**（首屏零往返粗畫），**非授權邊界、且可能陳舊**；權威狀態以 `/me` 為準、授權由後端讀 child 現值判定（見 §5.5、§7、決策 R5）。
 
+### 4.1 JWT `sid` claim（session 識別，WebSocket 驅動）
+
+> 🔗 由 [`websocket.md`](./websocket.md) §2.5／§2.11 驅動：WebSocket 單一 `logout`（斷某一裝置/session 的連線、不誤斷其他裝置）需讓 WS 連線知道自己屬於哪一次登入 session。`sid` 與 `grade` **同為 optional claim、同一擴充模式**（非 `None` 才放 key、向後相容），故一併記於本節。**WS 模組實作前，此 claim 必須先於 JWT 層落地**（見 websocket §8 里程碑 0）。
+
+`create_access_token` 再疊一個 optional `sid`（承 §4 的 `grade` 擴充）：
+
+- `create_access_token(subject, role: Role = Role.USER, grade: str | None = None, sid: str | None = None) -> str`：`sid` 非 `None` → payload 加 `"sid": sid`（`None` 則不放此 key，向後相容，**比照 `grade`**）。
+- `extract_sid(payload) -> str | None`：`payload.get("sid")`（缺 → `None`）。
+
+`sid` = 該登入 refresh 的 `family_id`（`str(uuid4())`）——**穩定識別「同一次登入 session」**（跨多次 rotation 不變，見 refresh-token-rotation §2.4）。一個 editor admin 的 payload：
+```jsonc
+{ "sub": "7", "role": 1, "grade": "editor", "sid": "3f2b…-uuid4", "type": "access", "iat": ..., "exp": ... }
+```
+
+> **語意／邊界**：
+> - `sid` = `family_id`（uuid4 字串），**非機密**（僅 session 識別），可直接放明文；傾向不另做 opaque 化（family_id 本非機密）。
+> - **非授權邊界**：與 `grade` 相同，後端**不以 `sid` 做授權判定**；它只供 WebSocket 單一 logout 的精準斷線比對（見 websocket §2.5）。
+> - **無 `sid` 的 token**（初始 admin `sub=0`、或未帶 `sid` 的舊 token）→ 不參與 sid 級操作（只受 principal 級 kick），向後相容。
+
 ---
 
 ## 5. 介面設計
@@ -156,6 +175,14 @@ USER_TIER_RANK: dict[UserTier, int] = {
 - `refresh`（角色無關）：**已因驗 `is_active` 而載入 child**（見 jwt-role §5.4）→ 順手讀**最新**等級重簽 `grade`。故每次 rotation 自動刷新 grade，陳舊窗口 ≤ 一個 access TTL（見決策 R5）。
 - **變更等級**：
   - `UserService.set_tier(user_id, tier)` / `AdminService.set_admin_role(admin_id, admin_role)`：寫 child 欄、commit。（升降權的**業務入口**與完整守衛由 [`admin-management-service.md`](./admin-management-service.md) §3.4 交付；本規格只提供 service 能力與授權機制。**命名採 `set_admin_role`**——改的是 `admins.admin_role` 權限等級，非型別判別子 `role`。）
+
+#### 簽發時帶入 `sid`（§4.1，WS 驅動）
+
+**所有簽發 access token 的路徑，把「當次 session 的 `family_id`」一併傳 `sid`**——與 `grade` 同一處呼叫、多帶一個具名參數即可：
+
+- `login` / `admin_login` / `register`：本來就會產一次 `family_id`（`str(uuid4())`）給 refresh（見 refresh-token-rotation §5.5）→ 把**同一個** `family_id` 傳給 `create_access_token(..., grade=<等級>, sid=family_id)`。**先產 `family_id` 再簽 token**（原本部分路徑是先 `create_access_token` 再 `_issue_refresh_token`，需調整順序讓兩者共用同一個 `family_id`）。
+- `refresh`（角色無關）：rotation **保持同一 `family_id`**（`rt.family_id`）→ 新 access token 帶 `sid=rt.family_id`。故**同一 session 跨多次 refresh 的 `sid` 不變**（穩定 session 識別，正是 WS 單一 logout 所需）。
+- **初始 admin（SSM，`sub=0`）**：`admin_login` 走 access-only、不建 refresh family → **不帶 `sid`**（`create_access_token(..., sid=None)`）；其 WS 不受單一 logout 影響（本就不走 refresh），只受 principal 級 kick（見 websocket §2.5）。
 
 ### 5.2 DTO / schema
 
@@ -243,9 +270,12 @@ def require_min_tier(minimum: UserTier):
 
 ## 8. TDD 測試計畫（先寫、先看到 RED）
 
-### 8.1 Unit — enum / JWT grade
+### 8.1 Unit — enum / JWT grade / JWT sid
 - `create_access_token(sub, Role.ADMIN, grade="editor")` → payload `grade == "editor"`；不傳 grade → 無 `grade` key。
 - `extract_grade`：缺 → `None`；有 → 對應字串。
+- **`sid`（§4.1）**：`create_access_token(sub, sid="fam-1")` → payload `sid == "fam-1"`；**不傳 `sid` → 無 `sid` key**（向後相容，比照 grade）。
+- `extract_sid`：缺 → `None`；有 → 對應字串。
+- `grade` 與 `sid` 可**同時**帶入、互不干擾（`create_access_token(sub, grade="editor", sid="fam-1")` → 兩 key 皆在）。
 
 ### 8.2 Unit — model / DB
 - `admin_role` 預設 `VIEWER`、`user_tier` 預設 `FREE`。
@@ -255,6 +285,9 @@ def require_min_tier(minimum: UserTier):
 - `login` / `admin_login` 簽出的 token `grade` == child 當前等級。
 - `refresh`：改 `admin.admin_role` 後 refresh → 新 access 的 `grade` 反映**新**值（驗證 rotation 刷新）。
 - `set_tier` / `set_admin_role` 寫入 child、回應反映新值。
+- **`sid`（§5.1）**：`login` / `admin_login` / `register` 簽出的 access token，其 `sid` == 同次簽發之 refresh token 的 `family_id`（解 access token 讀 `sid`，比對 refresh row 的 `family_id`）。
+- **`sid` 跨 rotation 穩定**：`refresh` 後新 access token 的 `sid` == 原 `rt.family_id`（同一 session 多次輪替 `sid` 不變）。
+- **初始 admin（`sub=0`）** `admin_login` 簽出的 token **無 `sid` key**（access-only、無 refresh family）。
 
 ### 8.4 Unit/Integration — 授權 dependency
 - `require_min_admin_role(EDITOR)`：`viewer` → 403；`editor`/`super_admin` → 放行。
@@ -274,6 +307,7 @@ def require_min_tier(minimum: UserTier):
 
 1. `UserTier` enum + `ADMIN_ROLE_RANK` / `USER_TIER_RANK` rank 表（8.1）。
 2. JWT `grade`（`create_access_token` 加參、`extract_grade`，向後相容）（8.1）。
+   - 同步落地 **`sid`（§4.1）**：`create_access_token` 加 `sid` 參、`extract_sid`；`login`/`admin_login`/`register` 帶入當次 `family_id`、`refresh` 保 `rt.family_id`（§5.1）。**WebSocket 模組的前置里程碑 0**（見 websocket §8），故與 `grade` 同批完成。
 3. `users.user_tier` 欄 + CHECK + migration（既有列 default `FREE`）（8.2）。
 4. service 簽發帶 `grade` + `refresh` 刷新 + `set_tier`/`set_admin_role`（8.3）。
 5. `require_min_admin_role` / `require_min_tier`（讀 child 現值）（8.4）。
@@ -288,6 +322,7 @@ def require_min_tier(minimum: UserTier):
 - ✅ `AdminRole = SUPER_ADMIN / EDITOR / VIEWER`（有序階梯）；`UserTier = FREE / PREMIUM`（示範，待確認）。
 - ✅ **admin 側 enum/欄/預設/seed 由 admin-account-refinement（next）交付；本規格（next+1）疊授權面（rank/grade/require_min）＋ user 側全套**。
 - ✅ JWT 加 `grade` claim（`StrEnum` 字串，避開 `role` 名）；後端授權讀 child 現值、claim 僅 UX。
+- ✅ JWT 加 **`sid` claim（§4.1，= refresh `family_id`）**：供 WebSocket 單一 logout 精準斷線（websocket §2.5）。optional、非機密、非授權邊界，與 `grade` 同一擴充模式；`login`/`admin_login`/`register`/`refresh` 帶入當次 session 的 `family_id`。**WS 模組前置依賴**（websocket §8 里程碑 0）。
 - ✅ fail-safe 預設最低權限（`VIEWER` / `FREE`），seed admin 例外 `SUPER_ADMIN`。
 - ✅ DB `CHECK` 值域硬化。
 

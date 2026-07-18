@@ -249,6 +249,7 @@ INITIAL_ADMIN_PASSWORD=change-me-strong-password
 ### 5.1 JWT `app/core/auth/jwt.py`
 
 - `create_access_token(subject: str | int, role: Role = Role.USER) -> str`：`subject` 傳 **principal_id**；payload 新增 `"role": int(role)`。預設 `Role.USER` 讓既有不傳 role 的呼叫端自動得 0（不破壞簽名）。
+  > 📎 後續兩個 **optional claim** 疊在此簽名上（皆「非 `None` 才放 key、向後相容」，不破壞既有呼叫端）：`grade`（等級提示，[`rbac.md`](./rbac.md) §4）與 `sid`（session 識別，rbac §4.1、由 [`websocket.md`](./websocket.md) §2.11 驅動）。最終簽名為 `create_access_token(subject, role=Role.USER, grade=None, sid=None)`。
 - `extract_role(payload) -> Role`：**fail-safe 解析**——缺 claim **或**未知值都退回最低權限 `Role.USER`：
   ```python
   def extract_role(payload: dict) -> Role:
