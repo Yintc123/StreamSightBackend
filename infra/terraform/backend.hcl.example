@@ -1,0 +1,7 @@
+# Copy to backend.hcl and fill in. Safe to commit (no secrets).
+# Reuse the SAME bucket as the overview stack — but a DIFFERENT key (independent state).
+# State locking is native to S3 (use_lockfile in versions.tf) — no DynamoDB.
+bucket  = "streamsight-tfstate-CHANGEME"
+key     = "streamsight/backend.tfstate"
+region  = "ap-northeast-2"
+encrypt = true

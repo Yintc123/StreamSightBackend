@@ -1,0 +1,16 @@
+region = "ap-northeast-2"
+
+# ---- WebSocket allowed origins ----
+# Set to the frontend CloudFront URL once it's deployed. The backend's own
+# CloudFront URL alone is rarely needed here (WS clients are browser-side).
+# ws_allowed_origins = ["https://<frontend-cloudfront-id>.cloudfront.net"]
+
+# ---- Initial super admin ----
+# Enable AFTER the overview stack has set initial_admin_password_hash and
+# all three /backend/initial_admin_* SSM params exist.
+# use_initial_admin = true
+
+# ---- Optional sizing overrides ----
+# desired_count = 1
+# task_cpu      = 256
+# task_memory   = 512
