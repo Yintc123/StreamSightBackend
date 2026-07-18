@@ -1,13 +1,19 @@
 import redis.asyncio as redis
 from fastapi import Depends
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
+from app.core.config import get_app_settings
 from app.services import AdminService, AuthService, UserService
+from app.services.monitoring.db_probe import MariaDbStatsProbe, PoolStatsProbe
+from app.services.monitoring.db_stats import DbStatsService
+from app.services.monitoring.logs import LogQueryService
+from app.services.monitoring.metrics import MetricQueryService
+from app.services.monitoring.store import RedisStreamStore, TimeSeriesStore
 from app.services.ws.publisher import Publisher
 from app.services.ws.reauth import WsReauthService
 from app.services.ws.ticket import TicketService
 
-from .db import get_session, get_session_factory
+from .db import get_engine, get_session, get_session_factory
 from .redis import get_redis
 
 
@@ -63,3 +69,38 @@ def get_auth_service(
     帶 WS Publisher：logout 斷該 session、logout_all 斷該 principal 的 WS（§2.5）。
     """
     return AuthService(session, publisher)
+
+
+# ── Monitoring dependencies（monitoring.md §4）───────────────────────────────
+
+
+def get_time_series_store(
+    client: redis.Redis = Depends(get_redis),
+) -> TimeSeriesStore:
+    """FastAPI dependency: Redis Stream 實作的 TimeSeriesStore。"""
+    return RedisStreamStore(client)
+
+
+def get_log_query_service(
+    store: TimeSeriesStore = Depends(get_time_series_store),
+) -> LogQueryService:
+    return LogQueryService(store)
+
+
+def get_db_stats_service(
+    engine: AsyncEngine = Depends(get_engine),
+    session_factory: async_sessionmaker[AsyncSession] = Depends(get_session_factory),
+) -> DbStatsService:
+    """依 db_dialect 自動選用 probe（monitoring.md §2.4）。"""
+    settings = get_app_settings()
+    if settings.db_dialect.startswith("mysql"):
+        probe = MariaDbStatsProbe(engine, session_factory, settings.db_name)
+    else:
+        probe = PoolStatsProbe(engine)
+    return DbStatsService(probe)
+
+
+def get_metric_query_service(
+    store: TimeSeriesStore = Depends(get_time_series_store),
+) -> MetricQueryService:
+    return MetricQueryService(store)

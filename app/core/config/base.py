@@ -184,6 +184,47 @@ class BaseAppSettings(BaseSettings):
         default=20, ge=1, le=1000, description="Max connections in the Redis client pool"
     )
 
+    # ── Monitoring（monitoring.md §4.1）───────────────────────────────────────
+    monitoring_enabled: bool = Field(
+        default=True,
+        description="監控總開關；False → 不掛 log handler、不起 sampler（測試/精簡部署）",
+    )
+    monitoring_log_stream_maxlen: int = Field(
+        default=10000, ge=100, description="monitor:stream:logs 近似上限（MAXLEN ~）"
+    )
+    monitoring_log_queue_maxsize: int = Field(
+        default=1000, ge=10, description="log handler 記憶體佇列上限；滿即丟最舊"
+    )
+    monitoring_log_flush_interval_seconds: int = Field(
+        default=1, ge=1, le=60, description="背景 flush 週期（秒）"
+    )
+    monitoring_log_flush_batch_size: int = Field(
+        default=100, ge=1, le=10000, description="單次 flush 批次上限"
+    )
+    monitoring_log_push_enabled: bool = Field(
+        default=False,
+        description="是否對 monitor.logs WS topic 即時 tail 推播（高頻，預設關）",
+    )
+    monitoring_db_sample_interval_seconds: int = Field(
+        default=15, ge=1, le=3600, description="DB 狀態採樣週期（秒）"
+    )
+    monitoring_db_stream_maxlen: int = Field(
+        default=10000, ge=100, description="monitor:stream:db 近似上限（MAXLEN ~）"
+    )
+    monitoring_sampler_leader_lease_seconds: int = Field(
+        default=30,
+        ge=2,
+        description="Redis leader lease 時長（秒）；須 ≥ 2× db_sample_interval",
+    )
+    monitoring_query_max_limit: int = Field(
+        default=500, ge=1, le=10000, description="查詢單頁上限（防重負載）"
+    )
+    monitoring_retention_seconds: int = Field(
+        default=604800,
+        ge=0,
+        description="可選按時間修剪（MINID，秒）；0 = 只靠 MAXLEN",
+    )
+
     # @computed_field
     @property
     def database_url(self) -> str:

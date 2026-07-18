@@ -1,8 +1,14 @@
 from collections.abc import AsyncGenerator
 
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.core.db import AsyncSessionLocal
+from app.core.db import engine as _engine
+
+
+def get_engine() -> AsyncEngine:
+    """FastAPI dependency: 回 app 級 AsyncEngine（供 monitoring probe 讀 pool 指標）。"""
+    return _engine
 
 
 def get_session_factory() -> async_sessionmaker[AsyncSession]:

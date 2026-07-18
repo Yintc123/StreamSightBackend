@@ -7,8 +7,11 @@
 from app.core.enums import AdminRole
 
 # 業務 topic → 最低 admin_role 門檻。預設空 = 任一 admin 皆可訂閱（§2.9）。
-# 業務規格於此註冊，例如：TOPIC_MIN_ROLE["monitor.secrets"] = AdminRole.SUPER_ADMIN
-TOPIC_MIN_ROLE: dict[str, AdminRole] = {}
+# monitoring.md §2.6：日誌含敏感上下文 → SUPER_ADMIN；DB 狀態 → VIEWER（任一 admin）。
+TOPIC_MIN_ROLE: dict[str, AdminRole] = {
+    "monitor.logs": AdminRole.SUPER_ADMIN,
+    "monitor.db": AdminRole.VIEWER,
+}
 
 
 def topic_min_role(topic: str) -> AdminRole | None:

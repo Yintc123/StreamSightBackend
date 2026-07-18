@@ -1,0 +1,85 @@
+"""RedisStreamStore：append / query 游標分頁（monitoring.md §2.2/§7.1）。"""
+
+import fakeredis.aioredis
+import pytest
+
+from app.dtos.monitoring import Page
+from app.services.monitoring.store import RedisStreamStore
+
+
+@pytest.fixture
+def store() -> RedisStreamStore:
+    return RedisStreamStore(fakeredis.aioredis.FakeRedis())
+
+
+async def test_append_returns_entry_id(store: RedisStreamStore) -> None:
+    eid = await store.append("test:stream", {"level": "INFO", "msg": "hello"})
+    assert isinstance(eid, str)
+    assert "-" in eid
+
+
+async def test_append_maxlen_trims_oldest(store: RedisStreamStore) -> None:
+    for i in range(5):
+        await store.append("s", {"i": str(i)}, maxlen=3)
+    page = await store.query("s", limit=100)
+    assert len(page.items) == 3
+
+
+async def test_query_empty_stream_returns_empty_page(store: RedisStreamStore) -> None:
+    page = await store.query("nonexistent:stream", limit=10)
+    assert page.items == []
+    assert page.next_cursor is None
+
+
+async def test_query_returns_all_within_range(store: RedisStreamStore) -> None:
+    for i in range(5):
+        await store.append("s2", {"n": str(i)})
+    page = await store.query("s2", limit=100)
+    assert len(page.items) == 5
+
+
+async def test_query_limit_and_cursor_pagination(store: RedisStreamStore) -> None:
+    for i in range(10):
+        await store.append("s3", {"n": str(i)})
+
+    page1 = await store.query("s3", limit=4)
+    assert len(page1.items) == 4
+    assert page1.next_cursor is not None
+
+    page2 = await store.query("s3", cursor=page1.next_cursor, limit=4)
+    assert len(page2.items) == 4
+    assert page2.next_cursor is not None
+
+    page3 = await store.query("s3", cursor=page2.next_cursor, limit=4)
+    assert len(page3.items) == 2
+    assert page3.next_cursor is None
+
+
+async def test_query_since_until_filters_by_id_range(store: RedisStreamStore) -> None:
+    id1 = await store.append("s4", {"n": "1"})
+    id2 = await store.append("s4", {"n": "2"})
+    await store.append("s4", {"n": "3"})
+
+    ms1 = int(id1.split("-")[0])
+    ms2 = int(id2.split("-")[0])
+    page = await store.query("s4", since=ms1, until=ms2, limit=100)
+    assert len(page.items) >= 1
+    assert all(int(item["_id"].split("-")[0]) <= ms2 for item in page.items)
+
+
+async def test_query_cursor_no_repeat_no_miss(store: RedisStreamStore) -> None:
+    for i in range(6):
+        await store.append("s5", {"n": str(i)})
+
+    all_items: list[dict] = []
+    cursor = None
+    while True:
+        page: Page[dict] = await store.query("s5", cursor=cursor, limit=3)
+        all_items.extend(page.items)
+        cursor = page.next_cursor
+        if cursor is None:
+            break
+
+    assert len(all_items) == 6
+    ids = [item["_id"] for item in all_items]
+    assert ids == sorted(ids)

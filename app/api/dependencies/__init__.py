@@ -7,12 +7,16 @@ from .auth import (
     require_min_tier,
     require_role,
 )
-from .db import get_session, get_session_factory
+from .db import get_engine, get_session, get_session_factory
 from .redis import get_cache, get_redis
 from .services import (
     get_admin_service,
     get_auth_service,
+    get_db_stats_service,
+    get_log_query_service,
+    get_metric_query_service,
     get_ticket_service,
+    get_time_series_store,
     get_user_service,
     get_ws_publisher,
     get_ws_reauth_service,
@@ -26,7 +30,12 @@ __all__ = [
     "get_current_principal",
     "get_current_token_sid",
     "get_current_user",
+    "get_db_stats_service",
+    "get_engine",
+    "get_log_query_service",
+    "get_metric_query_service",
     "get_ticket_service",
+    "get_time_series_store",
     "require_min_admin_role",
     "require_min_tier",
     "require_role",
