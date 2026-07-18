@@ -187,3 +187,15 @@ def test_wrong_algorithm_raises() -> None:
 
     with pytest.raises(InvalidTokenError):
         decode_token(wrong_alg_token)
+
+
+def test_create_access_token_custom_expire_seconds() -> None:
+    """expire_seconds 覆寫 → exp 約等於 now + 指定秒數（±5s 容差）。"""
+    expire = 7200
+    before = datetime.now(UTC)
+    token: str = create_access_token(user_id, expire_seconds=expire)
+    payload: dict = decode_token(token)
+
+    expected_exp = before + timedelta(seconds=expire)
+    actual_exp = datetime.fromtimestamp(payload["exp"], UTC)
+    assert abs((actual_exp - expected_exp).total_seconds()) < 5

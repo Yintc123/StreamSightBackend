@@ -21,6 +21,7 @@ def create_access_token(
     role: Role = Role.USER,
     grade: str | None = None,
     sid: str | None = None,
+    expire_seconds: int | None = None,
 ) -> str:
     """
     Create a JWT access token for the given subject (usually principal id).
@@ -38,7 +39,8 @@ def create_access_token(
     """
     settings: BaseAppSettings = get_app_settings()
     now: datetime = datetime.now(UTC)
-    expires_at: datetime = now + timedelta(seconds=settings.jwt_access_token_expire_seconds)
+    ttl = expire_seconds if expire_seconds is not None else settings.jwt_access_token_expire_seconds
+    expires_at: datetime = now + timedelta(seconds=ttl)
 
     payload: dict[str, Any] = {
         "sub": str(subject),
