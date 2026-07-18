@@ -157,6 +157,8 @@ class AdminListResponse(BaseModel):
 | **受保護 root 被降級/封存/刪除** ／ **super_admin 未降級即封存/刪除** ／ **對自己 archive/delete** ／ **自我提權** | `BusinessRuleError` | **422** |
 
 > **M2 一致性**：所有「業務規則違反」統一 `BusinessRuleError`（422）；403 只給授權層（等級不足、角色不符）。
+>
+> **DB CHECK 不影響 API 映射（A）**：model §2.3 的 `ck_admins_protected_is_super`／`ck_admins_protected_is_active` 是**繞過 service 才會觸發的結構兜底**；正常 API 流程一律先被 service 受保護守衛擋成 **422**，`IntegrityError` **不會由 API 浮現**，故本表無需新增對應列。
 
 ---
 

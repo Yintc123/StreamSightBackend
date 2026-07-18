@@ -90,7 +90,7 @@ async def update(self, admin_id: int, *, name: str, actor_principal_id: int) -> 
 async def change_password(self, admin_id: int, *, current_password: str, new_password: str) -> None
 ```
 - `get`（未刪除）→ 驗舊密碼 `verify_password(current_password, admin.password_hash)`，不符 → `UnauthorizedError`（統一訊息）。此路徑帳號必存在（呼叫者本人、已過 `get_current_admin`），故直接 `verify_password`、不需 dummy。
-- 新密碼不得等於舊 → `BadRequestError`（見 §10 Open Q1）。
+- 新密碼不得等於舊 → `BadRequestError`（見 §10 Open Q1）。**判定方式**：以 `verify_password(new_password, admin.password_hash)` 對**舊 hash** 驗新明文（argon2 隨機 salt 無法直接比 hash），為真即「新＝舊」→ 擋（多一次 argon2 verify，可接受）。
 - 設新 hash → `revoke_all_for_principal`（連自己當前 token 一併撤）→ commit。**無 `actor_principal_id`**（actor 即本人）。
 
 ### 3.4 `set_admin_role`（升降權；命名刻意用 `admin_role` 全名，避免與型別判別子 `role` 混淆）
@@ -124,6 +124,10 @@ async def set_admin_role(
 | **super_admin 須先降級** | `admin.admin_role == 'super_admin'` | archive／delete | `BusinessRuleError` 422（「demote before archiving/deleting a super admin」） |
 | **禁對自己** | `actor_principal_id == admin.principal_id` | archive／delete | `BusinessRuleError` 422 |
 | **禁自我提權** | `actor==target 且新等級 rank 更高` | set_admin_role | `BusinessRuleError` 422 |
+
+> **DB 兜底（A）**：受保護守衛除 app 判斷外，另有兩條單列 CHECK 兜底（model §2.3）——`ck_admins_protected_is_super`（間接擋「降級受保護者」）與 `ck_admins_protected_is_active`（擋「封存／軟刪除受保護者」）。即使繞過 service 直接寫 DB，`IntegrityError` 也擋下。**app 守衛負責友善訊息（422）、DB CHECK 負責結構兜底**——「root 恆 active super_admin」除 bootstrap 外全由 DB 保證。
+
+> **自我降級（foot-gun，刻意允許）**：自我提權被守衛擋，但**自我降級不擋**——非受保護 super_admin 可把自己降為 editor／viewer 而失去管理能力。因 protected root 仍能把他救回、系統不會鎖死，故接受此**可恢復**的 foot-gun（前端可對「降自己」加二次確認）。受保護 root 則因受保護守衛＋CHECK 無法自我降級。
 
 **M3：守衛適用範圍（actor 為 None 時）**：
 - **受保護守衛** 與 **super_admin-須先降級守衛**：**恆適用**（含 seed／script；`actor=None` 也不能刪掉受保護 root 或直接刪 super_admin）。
@@ -206,7 +210,9 @@ async def list_admins(
 - **不變式無併發異常**：≥1 super_admin 由受保護 root **單列**保證，**無 write skew、無鎖、無 SERIALIZABLE**（model §2.1）——這是本設計相對「聚合守衛」版本的關鍵優勢。
 - **兩步移除 super_admin**：先降級再封存／刪除，是刻意的 deliberate action，防手滑一步誤除高權限帳號。
 - **密碼變更撤 token**：自助改密碼後強制所有裝置重新登入（既有 refresh token 立即失效；access token 殘留 ≤ TTL，既有取捨）。
-- **忘記密碼的復原路徑**：admin **無 email**（找不回）、且**不提供 super_admin 重設他人密碼** → 帳號被鎖在外時，復原方式為**由另一位 super_admin 軟刪除該帳號後重新建立**（或 DB 層介入）。此為目前定案下明確接受的取捨；若未來痛點浮現，再議「reset-others（含 step-up）」或「admin email 找回」（見 §10 Open Q）。
+- **忘記密碼的復原路徑**：admin **無 email**（找不回）、且**不提供 super_admin 重設他人密碼**。
+  - **一般 admin／非受保護 super_admin** 被鎖在外：由另一位 super_admin 復原——非 super_admin 直接軟刪後重建；super_admin 先降級再軟刪後重建。此為目前定案下明確接受的取捨。
+  - **⚠️ 受保護 root 被鎖在外（唯一真實營運風險，C）**：受保護 root 不可降級／封存／刪除、又無 reset-others、又無 email 找回 → **系統中權限最高的帳號在應用層完全無復原路徑，只剩 DBA 直接改 DB（break-glass）**。這是受保護 root 設計優雅性的另一面。**目前定案：明確接受，並要求在營運 runbook 記錄「protected root 復原＝離線 DBA break-glass」**（例如離線執行 seed script 重設其 hash）。若此風險痛點浮現，再議受控 break-glass 工具或 admin email 找回（見 §10 Open Q5／Q6）。
 - **降權即時性**：授權讀 child 現值 → 降權對後端存取控制即時；`grade` claim 由 refresh 刷新。
 - **稽核**：狀態轉移寫 `*_by`；更新／升降權／重設密碼走 log（不記明文）。
 
@@ -232,6 +238,7 @@ async def list_admins(
 - 先 `set_admin_role(super_admin→viewer)` 再 archive／delete → 成功。
 - archive／delete 對自己（actor==target）→ 422；`actor=None`（script）→ 自我守衛不適用，但受保護／super_admin 守衛仍擋（M3）。
 - 已封存的 editor 再 archive → idempotent 成功。
+- **DB 兜底（A）**：繞過 service、直接對受保護 root 設 `archived_at`／`deleted_at` 並 flush → `IntegrityError`（`ck_admins_protected_is_active`，model §7.1）。
 
 ### 7.5 Unit — model / repo / seed
 - `is_protected` 預設 False；`CHECK(protected ⟹ super_admin)` 生效（model §7.1）。
@@ -256,6 +263,8 @@ async def list_admins(
 ## 9. 已定案決策
 
 - ✅ **受保護 root 單列守衛**保證 ≥1 super_admin：**無聚合計數、無鎖、無 write skew**（核心，model §2.1）。
+- ✅ **DB 兜底（A）**：受保護守衛另有 `ck_admins_protected_is_super`＋`ck_admins_protected_is_active` 兩條 CHECK，繞過 service 直接寫 DB 亦擋（model §2.3）——「root 恆 active super_admin」除 bootstrap 外全由 DB 保證。
+- ✅ **受保護 root 復原（C）**：明確接受「唯一復原路徑為離線 DBA break-glass」並記入 runbook（§6）；受保護者本身不可降級／封存／刪除、無自我降級之虞。
 - ✅ **super_admin 須先降級才能封存／刪除**（兩步工作流）；**受保護 root 不可降級／封存／刪除**。
 - ✅ 新增 `update`（僅 name）／`change_password`（自助驗舊）／`set_admin_role`（升降權）／`list_admins`；`create` 增參 `is_protected`。**不提供 `reset_password`**（重設他人密碼）。
 - ✅ **密碼變更撤該 principal 全部 refresh token**；改名／升降權**不撤**。
@@ -269,4 +278,5 @@ async def list_admins(
 2. **降權是否也撤 token**：本文採「不撤」（授權即時、grade 由 refresh 刷新）。若要求降權當下連 UI 即時失效，改「降權亦撤 refresh token」——待確認。
 3. **升降權稽核表**（承 model §8.1）。
 4. **transfer ownership（換 root）**：本組不提供（model §2.2）；若需要，另立單列鎖的原子操作。
-5. **reset-others 密碼 / admin email 找回**：**目前不規劃**（§3.3、§6）——復原走「軟刪除後重建」。若鎖帳復原痛點浮現，再議 super_admin 重設他人密碼（含 step-up 再認證）或 admin email 找回機制。
+5. **reset-others 密碼 / admin email 找回**：**目前不規劃**（§3.3、§6）——一般帳號復原走「軟刪除後重建」。若鎖帳復原痛點浮現，再議 super_admin 重設他人密碼（含 step-up 再認證）或 admin email 找回機制。
+6. **受保護 root 的受控 break-glass（C）**：目前定案為「離線 DBA 直接改 DB」並記 runbook（§6）；是否提供受控的離線復原工具（如 seed script `--reset-root-password`）待排期——非本組交付。
