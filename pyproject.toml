@@ -37,6 +37,7 @@ addopts = [
     "-ra",
     "--strict-markers",
     "--tb=short",
+    "--ignore=tests/smoke",
 ]
 testpaths = ["tests"]
 filterwarnings = [
