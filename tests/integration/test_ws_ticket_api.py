@@ -1,4 +1,4 @@
-"""POST /admin/ws/ticket：JWT 換短命單次 ticket（websocket §2.1/§7.0）。
+"""POST /ws/ticket：JWT 換短命單次 ticket（websocket §2.1/§7.0）。
 
 只 admin（role=1、active）能換票；ticket 綁 principal_id + sid（= 當次 access token sid）。
 """
@@ -31,7 +31,7 @@ def _auth(token: str) -> dict[str, str]:
 async def test_ticket_endpoint_returns_ticket_and_expiry(client: AsyncClient, admin: Admin) -> None:
     access = await _admin_access(client)
 
-    resp: Response = await client.post("/admin/ws/ticket", headers=_auth(access))
+    resp: Response = await client.post("/ws/ticket", headers=_auth(access))
 
     assert resp.status_code == status.HTTP_200_OK
     body = resp.json()
@@ -46,7 +46,7 @@ async def test_ticket_binds_principal_and_sid(
     access = await _admin_access(client)
     expected_sid = extract_sid(decode_token(access))
 
-    resp = await client.post("/admin/ws/ticket", headers=_auth(access))
+    resp = await client.post("/ws/ticket", headers=_auth(access))
     ticket = resp.json()["ticket"]
 
     consumed = await TicketService(fake_redis).consume(ticket)
@@ -54,7 +54,7 @@ async def test_ticket_binds_principal_and_sid(
 
 
 async def test_ticket_requires_auth(client: AsyncClient, admin: Admin) -> None:
-    resp = await client.post("/admin/ws/ticket")
+    resp = await client.post("/ws/ticket")
     assert resp.status_code == status.HTTP_401_UNAUTHORIZED
 
 
@@ -65,7 +65,7 @@ async def test_ticket_rejects_user_token(client: AsyncClient) -> None:
     )
     user_access = reg.json()["access_token"]
 
-    resp = await client.post("/admin/ws/ticket", headers=_auth(user_access))
+    resp = await client.post("/ws/ticket", headers=_auth(user_access))
     assert resp.status_code == status.HTTP_403_FORBIDDEN
 
 
@@ -83,5 +83,5 @@ async def test_ticket_rejects_archived_admin(client: AsyncClient, db_session: As
 
     await AdminService(db_session).archive(editor.id)
 
-    resp = await client.post("/admin/ws/ticket", headers=_auth(access))
+    resp = await client.post("/ws/ticket", headers=_auth(access))
     assert resp.status_code == status.HTTP_401_UNAUTHORIZED

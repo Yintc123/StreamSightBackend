@@ -5,7 +5,7 @@ from typing import cast
 import pytest
 from starlette.websockets import WebSocket
 
-from app.api.routers.admin.ws import _clean_cid, _origin_allowed
+from app.api.routers.ws.router import _clean_cid, _origin_allowed
 from app.core.config import get_app_settings
 
 

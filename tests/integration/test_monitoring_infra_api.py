@@ -1,4 +1,4 @@
-"""GET /admin/monitoring/infra 整合測試（infra-monitoring.md §6.4）。"""
+"""GET /monitoring/infra 整合測試（infra-monitoring.md §6.4）。"""
 
 import json
 import time
@@ -45,7 +45,7 @@ def _make_snapshot(ts: int) -> str:
 
 
 async def test_infra_no_auth_401(client: AsyncClient) -> None:
-    resp = await client.get("/admin/monitoring/infra")
+    resp = await client.get("/monitoring/infra")
     assert resp.status_code == status.HTTP_401_UNAUTHORIZED
 
 
@@ -54,7 +54,7 @@ async def test_infra_empty_redis_returns_empty(
 ) -> None:
     """Redis 為空 → 200 + {"snapshots": []}。"""
     token = await _admin_token(client)
-    resp = await client.get("/admin/monitoring/infra", headers=_auth(token))
+    resp = await client.get("/monitoring/infra", headers=_auth(token))
     assert resp.status_code == status.HTTP_200_OK
     assert resp.json()["snapshots"] == []
 
@@ -69,7 +69,7 @@ async def test_infra_returns_snapshots_oldest_first(
         await fake_redis.zadd(REDIS_KEY, {_make_snapshot(ts): ts})
 
     token = await _admin_token(client)
-    resp = await client.get("/admin/monitoring/infra", headers=_auth(token))
+    resp = await client.get("/monitoring/infra", headers=_auth(token))
     assert resp.status_code == status.HTTP_200_OK
     snapshots = resp.json()["snapshots"]
     assert len(snapshots) == 3
@@ -91,7 +91,7 @@ async def test_infra_range_filter_works(
 
     token = await _admin_token(client)
     resp = await client.get(
-        "/admin/monitoring/infra",
+        "/monitoring/infra",
         params={"start_ms": t2, "end_ms": t3},
         headers=_auth(token),
     )
@@ -111,7 +111,7 @@ async def test_infra_only_start_ms(
 
     token = await _admin_token(client)
     resp = await client.get(
-        "/admin/monitoring/infra",
+        "/monitoring/infra",
         params={"start_ms": ts - 100},
         headers=_auth(token),
     )
@@ -136,7 +136,7 @@ async def test_infra_only_end_ms(
 
     token = await _admin_token(client)
     resp = await client.get(
-        "/admin/monitoring/infra",
+        "/monitoring/infra",
         params={"end_ms": end_ms},
         headers=_auth(token),
     )
@@ -155,7 +155,7 @@ async def test_infra_no_params_returns_default_range(
     await fake_redis.zadd(REDIS_KEY, {_make_snapshot(ts): ts})
 
     token = await _admin_token(client)
-    resp = await client.get("/admin/monitoring/infra", headers=_auth(token))
+    resp = await client.get("/monitoring/infra", headers=_auth(token))
     assert resp.status_code == status.HTTP_200_OK
     assert len(resp.json()["snapshots"]) == 1
 
@@ -165,7 +165,7 @@ async def test_infra_start_gte_end_returns_400(client: AsyncClient, admin: Admin
     now_ms = int(time.time() * 1000)
     token = await _admin_token(client)
     resp = await client.get(
-        "/admin/monitoring/infra",
+        "/monitoring/infra",
         params={"start_ms": now_ms, "end_ms": now_ms},
         headers=_auth(token),
     )
@@ -179,7 +179,7 @@ async def test_infra_range_exceeds_retention_returns_400(client: AsyncClient, ad
     start_ms = now_ms - (settings.monitoring_infra_retention_hours + 1) * 3_600_000
     token = await _admin_token(client)
     resp = await client.get(
-        "/admin/monitoring/infra",
+        "/monitoring/infra",
         params={"start_ms": start_ms, "end_ms": now_ms},
         headers=_auth(token),
     )
@@ -215,5 +215,5 @@ async def test_infra_redis_unavailable_returns_503(db_session, admin: Admin) -> 
         ) as nc:
             token = await _admin_token(nc)
 
-        resp = await broken_client.get("/admin/monitoring/infra", headers=_auth(token))
+        resp = await broken_client.get("/monitoring/infra", headers=_auth(token))
         assert resp.status_code == status.HTTP_503_SERVICE_UNAVAILABLE

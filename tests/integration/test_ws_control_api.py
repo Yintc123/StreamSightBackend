@@ -17,12 +17,12 @@ async def _ticket(
         "/admin/auth/login", json={"username": username, "password": password}
     )
     access = login.json()["access_token"]
-    resp = await client.post("/admin/ws/ticket", headers={"Authorization": f"Bearer {access}"})
+    resp = await client.post("/ws/ticket", headers={"Authorization": f"Bearer {access}"})
     return resp.json()["ticket"]
 
 
 def _url(ticket: str, cid: str = "tab-1") -> str:
-    return f"http://test/admin/ws?ticket={ticket}&cid={cid}"
+    return f"http://test/ws?ticket={ticket}&cid={cid}"
 
 
 async def test_subscribe_returns_ack(ws_client: AsyncClient, admin) -> None:

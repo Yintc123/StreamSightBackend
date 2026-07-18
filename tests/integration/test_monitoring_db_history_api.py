@@ -1,4 +1,4 @@
-"""GET /admin/monitoring/db/history 整合測試（股價式折線圖 API）。"""
+"""GET /monitoring/db/history 整合測試（股價式折線圖 API）。"""
 
 import json
 import time
@@ -39,7 +39,7 @@ def _make_db_snapshot(ts: int) -> str:
 
 
 async def test_db_history_no_auth_401(client: AsyncClient) -> None:
-    resp = await client.get("/admin/monitoring/db/history")
+    resp = await client.get("/monitoring/db/history")
     assert resp.status_code == status.HTTP_401_UNAUTHORIZED
 
 
@@ -47,7 +47,7 @@ async def test_db_history_empty_redis_returns_empty(
     client: AsyncClient, admin: Admin, fake_redis: redis.Redis
 ) -> None:
     token = await _admin_token(client)
-    resp = await client.get("/admin/monitoring/db/history", headers=_auth(token))
+    resp = await client.get("/monitoring/db/history", headers=_auth(token))
     assert resp.status_code == status.HTTP_200_OK
     assert resp.json()["snapshots"] == []
 
@@ -62,7 +62,7 @@ async def test_db_history_returns_snapshots_oldest_first(
         await fake_redis.zadd(REDIS_KEY, {_make_db_snapshot(ts): ts})
 
     token = await _admin_token(client)
-    resp = await client.get("/admin/monitoring/db/history", headers=_auth(token))
+    resp = await client.get("/monitoring/db/history", headers=_auth(token))
     assert resp.status_code == status.HTTP_200_OK
     snapshots = resp.json()["snapshots"]
     assert len(snapshots) == 3
@@ -81,7 +81,7 @@ async def test_db_history_range_filter_works(
 
     token = await _admin_token(client)
     resp = await client.get(
-        "/admin/monitoring/db/history",
+        "/monitoring/db/history",
         params={"start_ms": t2, "end_ms": t3},
         headers=_auth(token),
     )
@@ -100,7 +100,7 @@ async def test_db_history_only_start_ms(
 
     token = await _admin_token(client)
     resp = await client.get(
-        "/admin/monitoring/db/history",
+        "/monitoring/db/history",
         params={"start_ms": ts - 100},
         headers=_auth(token),
     )
@@ -125,7 +125,7 @@ async def test_db_history_only_end_ms(
 
     token = await _admin_token(client)
     resp = await client.get(
-        "/admin/monitoring/db/history",
+        "/monitoring/db/history",
         params={"end_ms": end_ms},
         headers=_auth(token),
     )
@@ -143,7 +143,7 @@ async def test_db_history_no_params_returns_default_range(
     await fake_redis.zadd(REDIS_KEY, {_make_db_snapshot(ts): ts})
 
     token = await _admin_token(client)
-    resp = await client.get("/admin/monitoring/db/history", headers=_auth(token))
+    resp = await client.get("/monitoring/db/history", headers=_auth(token))
     assert resp.status_code == status.HTTP_200_OK
     assert len(resp.json()["snapshots"]) == 1
 
@@ -152,7 +152,7 @@ async def test_db_history_start_gte_end_returns_400(client: AsyncClient, admin: 
     now_ms = int(time.time() * 1000)
     token = await _admin_token(client)
     resp = await client.get(
-        "/admin/monitoring/db/history",
+        "/monitoring/db/history",
         params={"start_ms": now_ms, "end_ms": now_ms},
         headers=_auth(token),
     )
@@ -167,7 +167,7 @@ async def test_db_history_range_exceeds_retention_returns_400(
     start_ms = now_ms - (settings.monitoring_db_retention_hours + 1) * 3_600_000
     token = await _admin_token(client)
     resp = await client.get(
-        "/admin/monitoring/db/history",
+        "/monitoring/db/history",
         params={"start_ms": start_ms, "end_ms": now_ms},
         headers=_auth(token),
     )

@@ -19,12 +19,12 @@ async def _ticket(client: AsyncClient) -> str:
         "/admin/auth/login", json={"username": ADMIN_USERNAME, "password": ADMIN_PASSWORD}
     )
     access = login.json()["access_token"]
-    resp = await client.post("/admin/ws/ticket", headers={"Authorization": f"Bearer {access}"})
+    resp = await client.post("/ws/ticket", headers={"Authorization": f"Bearer {access}"})
     return resp.json()["ticket"]
 
 
 def _url(ticket: str, cid: str) -> str:
-    return f"http://test/admin/ws?ticket={ticket}&cid={cid}"
+    return f"http://test/ws?ticket={ticket}&cid={cid}"
 
 
 def _extract_close_code(exc: BaseException) -> int | None:

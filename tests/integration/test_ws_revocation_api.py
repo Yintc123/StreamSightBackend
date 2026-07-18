@@ -24,7 +24,7 @@ async def _login(
 
 
 async def _ticket(client: AsyncClient, access: str) -> str:
-    resp = await client.post("/admin/ws/ticket", headers={"Authorization": f"Bearer {access}"})
+    resp = await client.post("/ws/ticket", headers={"Authorization": f"Bearer {access}"})
     return resp.json()["ticket"]
 
 
@@ -39,7 +39,7 @@ async def _read_until_close(ws) -> int:
 async def test_single_logout_kicks_only_that_session(ws_client: AsyncClient, admin) -> None:
     tokens = await _login(ws_client)
     ticket = await _ticket(ws_client, tokens["access_token"])
-    async with aconnect_ws(f"http://test/admin/ws?ticket={ticket}&cid=c1", ws_client) as ws:
+    async with aconnect_ws(f"http://test/ws?ticket={ticket}&cid=c1", ws_client) as ws:
         await ws.receive_json()  # welcome
         await ws_client.post("/auth/logout", json={"refresh_token": tokens["refresh_token"]})
         assert await _read_until_close(ws) == 4401
@@ -50,8 +50,8 @@ async def test_logout_all_kicks_all_connections(ws_client: AsyncClient, admin) -
     t1 = await _ticket(ws_client, tokens["access_token"])
     t2 = await _ticket(ws_client, tokens["access_token"])
     async with (
-        aconnect_ws(f"http://test/admin/ws?ticket={t1}&cid=c1", ws_client) as ws1,
-        aconnect_ws(f"http://test/admin/ws?ticket={t2}&cid=c2", ws_client) as ws2,
+        aconnect_ws(f"http://test/ws?ticket={t1}&cid=c1", ws_client) as ws1,
+        aconnect_ws(f"http://test/ws?ticket={t2}&cid=c2", ws_client) as ws2,
     ):
         await ws1.receive_json()
         await ws2.receive_json()
@@ -72,7 +72,7 @@ async def test_archive_kicks_admin_ws(
     ticket = await _ticket(ws_client, editor_tokens["access_token"])
     root = await _login(ws_client)
 
-    async with aconnect_ws(f"http://test/admin/ws?ticket={ticket}&cid=c1", ws_client) as ws:
+    async with aconnect_ws(f"http://test/ws?ticket={ticket}&cid=c1", ws_client) as ws:
         await ws.receive_json()  # welcome
         resp = await ws_client.post(
             f"/admin/admins/{editor.id}/archive",
@@ -98,7 +98,7 @@ async def test_reauth_backstop_when_kick_missed(
     sid = extract_sid(decode_token(tokens["access_token"]))
     ticket = await _ticket(ws_client, tokens["access_token"])
 
-    async with aconnect_ws(f"http://test/admin/ws?ticket={ticket}&cid=c1", ws_client) as ws:
+    async with aconnect_ws(f"http://test/ws?ticket={ticket}&cid=c1", ws_client) as ws:
         await ws.receive_json()  # welcome
         # 直接撤該 family（模擬登出但 kick 未送達）
         assert sid is not None

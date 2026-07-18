@@ -35,7 +35,7 @@ async def _ticket(
         "/admin/auth/login", json={"username": username, "password": password}
     )
     access = login.json()["access_token"]
-    resp = await client.post("/admin/ws/ticket", headers={"Authorization": f"Bearer {access}"})
+    resp = await client.post("/ws/ticket", headers={"Authorization": f"Bearer {access}"})
     return resp.json()["ticket"]
 
 
@@ -65,7 +65,7 @@ async def test_missed_pong_closes_4000(
     monkeypatch.setattr(settings, "ws_reauth_interval_seconds", 3600)  # 別讓複查插手
 
     ticket = await _ticket(ws_client)
-    code = await _read_until_close(ws_client, f"http://test/admin/ws?ticket={ticket}&cid=c1")
+    code = await _read_until_close(ws_client, f"http://test/ws?ticket={ticket}&cid=c1")
     assert code == 4000
 
 
@@ -83,7 +83,7 @@ async def test_idle_timeout_closes_4000(
     monkeypatch.setattr(settings, "ws_reauth_interval_seconds", 3600)
 
     ticket = await _ticket(ws_client)
-    code = await _read_until_close(ws_client, f"http://test/admin/ws?ticket={ticket}&cid=c1")
+    code = await _read_until_close(ws_client, f"http://test/ws?ticket={ticket}&cid=c1")
     assert code == 4000
 
 
@@ -98,7 +98,7 @@ async def test_activity_resets_idle_timer(
     monkeypatch.setattr(settings, "ws_reauth_interval_seconds", 3600)
 
     ticket = await _ticket(ws_client)
-    async with aconnect_ws(f"http://test/admin/ws?ticket={ticket}&cid=c1", ws_client) as ws:
+    async with aconnect_ws(f"http://test/ws?ticket={ticket}&cid=c1", ws_client) as ws:
         await ws.receive_json()  # welcome
         # 持續送 pong 保活（跨越數個 idle 窗）
         for _ in range(6):
@@ -128,7 +128,7 @@ async def test_reauth_archived_closes_4401(
     )
     ticket = await _ticket(ws_client, username="hb-editor", password="longpassword")
 
-    async with aconnect_ws(f"http://test/admin/ws?ticket={ticket}&cid=c1", ws_client) as ws:
+    async with aconnect_ws(f"http://test/ws?ticket={ticket}&cid=c1", ws_client) as ws:
         await ws.receive_json()  # welcome
         await AdminService(db_session).archive(editor.id)
         try:

@@ -17,12 +17,12 @@ async def _access(client: AsyncClient) -> str:
 
 
 async def _ticket(client: AsyncClient, access: str) -> str:
-    resp = await client.post("/admin/ws/ticket", headers={"Authorization": f"Bearer {access}"})
+    resp = await client.post("/ws/ticket", headers={"Authorization": f"Bearer {access}"})
     return resp.json()["ticket"]
 
 
 def _url(ticket: str, cid: str) -> str:
-    return f"http://test/admin/ws?ticket={ticket}&cid={cid}"
+    return f"http://test/ws?ticket={ticket}&cid={cid}"
 
 
 async def _read_until_close(ws) -> int:
