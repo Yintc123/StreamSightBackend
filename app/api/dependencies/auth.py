@@ -8,7 +8,13 @@ from fastapi import Depends
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.enums import Role
+from app.core.enums import (
+    ADMIN_ROLE_RANK,
+    USER_TIER_RANK,
+    AdminRole,
+    Role,
+    UserTier,
+)
 from app.core.exceptions import ForbiddenError
 from app.dtos import CurrentPrincipal
 from app.models import Admin, User
@@ -66,6 +72,35 @@ async def get_current_principal(
     """
     auth_service: AuthService = AuthService(session)
     return await auth_service.get_principal_from_token(token)
+
+
+def require_min_admin_role(minimum: AdminRole) -> Callable[..., Awaitable[Admin]]:
+    """Factory：階梯授權——當前 admin 的 admin_role rank ≥ minimum 才放行。
+
+    讀 **child 現值**（admin.admin_role，非 token grade claim）→ 降權即時生效、竄改
+    claim 無用（rbac §5.3）。等級不足 → ForbiddenError(403)。
+    """
+
+    async def _dep(admin: Admin = Depends(get_current_admin)) -> Admin:
+        if ADMIN_ROLE_RANK[AdminRole(admin.admin_role)] < ADMIN_ROLE_RANK[minimum]:
+            raise ForbiddenError("insufficient admin role")
+        return admin
+
+    return _dep
+
+
+def require_min_tier(minimum: UserTier) -> Callable[..., Awaitable[User]]:
+    """Factory：階梯授權——當前 user 的 user_tier rank ≥ minimum 才放行。
+
+    讀 child 現值（user.user_tier）→ 升降級即時。等級不足 → ForbiddenError(403)。
+    """
+
+    async def _dep(user: User = Depends(get_current_user)) -> User:
+        if USER_TIER_RANK[UserTier(user.user_tier)] < USER_TIER_RANK[minimum]:
+            raise ForbiddenError("tier required")
+        return user
+
+    return _dep
 
 
 def require_role(*roles: Role) -> Callable[..., Awaitable[CurrentPrincipal]]:

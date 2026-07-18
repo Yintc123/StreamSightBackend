@@ -25,6 +25,8 @@ async def test_creates_admin_when_absent(db_session: AsyncSession) -> None:
     assert admin.name == "Administrator"
     assert admin.role == 1
     assert admin.admin_role == AdminRole.SUPER_ADMIN.value
+    # seed 建立的 root 為受保護（「≥1 super_admin」不變式的唯一建立點，§3.7）
+    assert admin.is_protected is True
 
 
 async def test_name_defaults_to_username_when_empty(db_session: AsyncSession) -> None:

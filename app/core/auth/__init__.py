@@ -3,6 +3,7 @@ from .jwt import (
     InvalidTokenError,
     create_access_token,
     decode_token,
+    extract_grade,
     extract_role,
 )
 from .password import hash_password, verify_password, verify_password_or_dummy
@@ -14,6 +15,7 @@ __all__ = [
     "verify_password_or_dummy",
     "create_access_token",
     "decode_token",
+    "extract_grade",
     "extract_role",
     "ExpiredSignatureError",
     "InvalidTokenError",

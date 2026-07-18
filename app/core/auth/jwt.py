@@ -16,7 +16,9 @@ from app.core.config import BaseAppSettings, get_app_settings
 from app.core.enums import Role
 
 
-def create_access_token(subject: str | int, role: Role = Role.USER) -> str:
+def create_access_token(
+    subject: str | int, role: Role = Role.USER, grade: str | None = None
+) -> str:
     """
     Create a JWT access token for the given subject (usually principal id).
 
@@ -24,6 +26,8 @@ def create_access_token(subject: str | int, role: Role = Role.USER) -> str:
         sub: subject (principal id, stringified)
         type: "access"
         role: 角色判別子（0=user, 1=admin）；預設 Role.USER 讓既有呼叫端無縫相容
+        grade: 該型別內的等級字串（admin→admin_role、user→user_tier）；None 則不放此 key
+               （向後相容，僅為 UX 提示、非授權邊界，見 rbac §4）
         iat: issued at (UTC timestamp)
         exp: expires at (UTC timestamp)
     """
@@ -38,6 +42,8 @@ def create_access_token(subject: str | int, role: Role = Role.USER) -> str:
         "iat": now,
         "exp": expires_at,
     }
+    if grade is not None:
+        payload["grade"] = grade
 
     return jwt.encode(
         payload,
@@ -57,6 +63,14 @@ def extract_role(payload: dict[str, Any]) -> Role:
         return Role(payload.get("role", Role.USER))
     except ValueError:
         return Role.USER
+
+
+def extract_grade(payload: dict[str, Any]) -> str | None:
+    """解析 grade claim（該身分的等級字串）：缺 key → None。
+
+    grade 僅為前端 UX 提示、非授權邊界（後端授權讀 child 現值）。見 rbac §4/§5.5。
+    """
+    return payload.get("grade")
 
 
 def decode_token(token: str) -> dict[str, Any]:
@@ -80,5 +94,6 @@ __all__ = [
     "InvalidTokenError",
     "create_access_token",
     "decode_token",
+    "extract_grade",
     "extract_role",
 ]

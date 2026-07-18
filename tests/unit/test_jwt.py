@@ -11,6 +11,7 @@ from app.core.auth import (
     InvalidTokenError,
     create_access_token,
     decode_token,
+    extract_grade,
     extract_role,
 )
 from app.core.config import BaseAppSettings, get_app_settings
@@ -46,6 +47,31 @@ def test_access_token_admin_role_claim() -> None:
     payload: dict = decode_token(token)
 
     assert payload["role"] == 1
+
+
+def test_grade_claim_included_when_provided() -> None:
+    """rbac §4：帶 grade → payload 有 grade key（前端讀等級）。"""
+    token: str = create_access_token(user_id, Role.ADMIN, grade="editor")
+    payload: dict = decode_token(token)
+
+    assert payload["grade"] == "editor"
+    assert set(payload.keys()) == {"sub", "type", "role", "grade", "iat", "exp"}
+
+
+def test_grade_claim_omitted_when_none() -> None:
+    """不傳 grade → 不放 grade key（向後相容，既有呼叫端無感）。"""
+    token: str = create_access_token(user_id)
+    payload: dict = decode_token(token)
+
+    assert "grade" not in payload
+
+
+def test_extract_grade_missing_returns_none() -> None:
+    assert extract_grade({}) is None
+
+
+def test_extract_grade_reads_claim() -> None:
+    assert extract_grade({"grade": "super_admin"}) == "super_admin"
 
 
 def test_extract_role_missing_defaults_to_user() -> None:

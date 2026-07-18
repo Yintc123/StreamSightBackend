@@ -146,6 +146,18 @@ async def test_list_users(client: AsyncClient, sample_users: list[User]) -> None
     assert len(users) == len(sample_users)
 
 
+async def test_users_me_exposes_tier(client: AsyncClient) -> None:
+    """rbac §5.2：/me 曝露 user_tier（前端等級真實來源，反映 DB 現值）。"""
+    reg: Response = await client.post(
+        "/auth/register",
+        json={"email": "tier@example.com", "name": "T", "password": "longpassword"},
+    )
+    token: str = reg.json()["access_token"]
+    me: Response = await client.get("/users/me", headers={"Authorization": f"Bearer {token}"})
+    assert me.status_code == status.HTTP_200_OK
+    assert me.json()["tier"] == "free"
+
+
 async def test_users_me_without_token_returns_401(client: AsyncClient) -> None:
     """沒帶 Authorization header → 401 (OAuth2PasswordBearer 自動拒絕)。"""
     response: Response = await client.get("/users/me")

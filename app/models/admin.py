@@ -11,6 +11,7 @@ docs/specs/admin-account-refinement.md：
 from datetime import datetime
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -47,6 +48,11 @@ class Admin(Base):
         server_default=AdminRole.VIEWER.value,
     )
 
+    # 受保護 root 標記（seed-only、不可經 API 切換）：把「≥1 super_admin」降為單列不變式。
+    # 受保護者恆為 active super_admin（由下方兩條 CHECK ＋ service 守衛保證）。
+    # 見 docs/specs/admin-management-model.md §2.1/§2.3。
+    is_protected: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("0"))
+
     # 封存 / 軟刪除時間戳（NULL = 未發生）＋ 操作者稽核（誰做的）
     # 成對不變式：archived_at 與 archived_by 同進同退（deleted_* 同理），見 §2.2。
     archived_at: Mapped[datetime | None] = mapped_column(
@@ -73,6 +79,17 @@ class Admin(Base):
         CheckConstraint(
             "admin_role IN ('super_admin', 'editor', 'viewer')",
             name="ck_admins_admin_role",
+        ),
+        # 受保護者必為 super_admin（間接硬化「受保護者不可降級」）。§2.3
+        CheckConstraint(
+            "is_protected = 0 OR admin_role = 'super_admin'",
+            name="ck_admins_protected_is_super",
+        ),
+        # 受保護者恆為 active（未封存、未軟刪除）——使「root 恆 active super_admin」除
+        # bootstrap 外全由 DB 保證。§2.3
+        CheckConstraint(
+            "is_protected = 0 OR (archived_at IS NULL AND deleted_at IS NULL)",
+            name="ck_admins_protected_is_active",
         ),
     )
 

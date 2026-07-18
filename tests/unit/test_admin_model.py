@@ -69,3 +69,60 @@ async def test_admin_role_defaults_to_viewer(db_session: AsyncSession) -> None:
 async def test_admin_role_check_rejects_out_of_domain(db_session: AsyncSession) -> None:
     with pytest.raises(IntegrityError):
         await _make_admin(db_session, username="bad", admin_role="root")
+
+
+# ── is_protected + 兩條單列 CHECK（admin-management-model §2.3/§7.1）──
+
+
+async def _make_protected(
+    db_session: AsyncSession,
+    *,
+    username: str,
+    admin_role: str = "super_admin",
+    archived: bool = False,
+    deleted: bool = False,
+) -> Admin:
+    principal: Principal = await PrincipalRepository(db_session).create(Role.ADMIN)
+    admin = Admin(
+        username=username,
+        name="A",
+        password_hash="h",
+        principal_id=principal.id,
+        admin_role=admin_role,
+        is_protected=True,
+    )
+    if archived:
+        admin.archived_at = datetime.now(UTC)
+    if deleted:
+        admin.deleted_at = datetime.now(UTC)
+    db_session.add(admin)
+    await db_session.flush()
+    return admin
+
+
+async def test_is_protected_defaults_to_false(db_session: AsyncSession) -> None:
+    admin = await _make_admin(db_session, username="def2")
+    fetched = (await db_session.execute(select(Admin).where(Admin.id == admin.id))).scalar_one()
+    assert fetched.is_protected is False
+
+
+async def test_protected_must_be_super_admin(db_session: AsyncSession) -> None:
+    # ck_admins_protected_is_super：protected 且非 super_admin → IntegrityError
+    with pytest.raises(IntegrityError):
+        await _make_protected(db_session, username="p1", admin_role="editor")
+
+
+async def test_protected_super_admin_writes_ok(db_session: AsyncSession) -> None:
+    admin = await _make_protected(db_session, username="p2", admin_role="super_admin")
+    assert admin.is_protected is True
+
+
+async def test_protected_must_be_active_archived(db_session: AsyncSession) -> None:
+    # ck_admins_protected_is_active：protected 且已封存 → IntegrityError
+    with pytest.raises(IntegrityError):
+        await _make_protected(db_session, username="p3", archived=True)
+
+
+async def test_protected_must_be_active_deleted(db_session: AsyncSession) -> None:
+    with pytest.raises(IntegrityError):
+        await _make_protected(db_session, username="p4", deleted=True)

@@ -7,16 +7,23 @@
 
 import logging
 import re
+from collections.abc import Sequence
 from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.auth import hash_password
-from app.core.enums import AdminRole, Role
-from app.core.exceptions import BadRequestError, ConflictError, NotFoundError
+from app.core.auth import hash_password, verify_password
+from app.core.enums import ADMIN_ROLE_RANK, AdminRole, AdminStatusFilter, Role
+from app.core.exceptions import (
+    BadRequestError,
+    BusinessRuleError,
+    ConflictError,
+    NotFoundError,
+    UnauthorizedError,
+)
 from app.core.security import normalize_username
 from app.models.admin import Admin
-from app.repositories.admin import AdminRepository
+from app.repositories.admin import AdminListRow, AdminRepository
 from app.repositories.principal import PrincipalRepository
 from app.repositories.refresh_token import RefreshTokenRepository
 
@@ -38,6 +45,32 @@ class AdminService:
         self.repo: AdminRepository = AdminRepository(session)
         self.principal_repo: PrincipalRepository = PrincipalRepository(session)
         self.refresh_repo: RefreshTokenRepository = RefreshTokenRepository(session)
+
+    async def list_admins(
+        self,
+        *,
+        status: AdminStatusFilter = AdminStatusFilter.ACTIVE,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[Sequence[AdminListRow], int]:
+        """列表（委派 repository）：回 (rows, total)。純讀取、無 commit。§3.8。
+
+        rows 為 AdminListRow（admin + 解析出的稽核者 username，供 API 直接顯示）。
+        """
+        rows = await self.repo.list_admins(status=status, limit=limit, offset=offset)
+        total = await self.repo.count_admins(status=status)
+        return rows, total
+
+    async def get_row(self, admin_id: int, *, include_deleted: bool = False) -> AdminListRow:
+        """明細／生命週期回身用：帶稽核者 username 的一列。軟刪除規則同 `get`。
+
+        Raises:
+            NotFoundError: admin 不存在，或未帶 include_deleted 時已軟刪除。
+        """
+        row = await self.repo.get_list_row(admin_id)
+        if row is None or (not include_deleted and row.admin.deleted_at is not None):
+            raise NotFoundError(f"Admin {admin_id} not found")
+        return row
 
     async def get(self, admin_id: int, *, include_deleted: bool = False) -> Admin:
         """Fetch an admin by ID. Raises NotFoundError if missing.
@@ -61,15 +94,18 @@ class AdminService:
         name: str,
         password: str,
         admin_role: AdminRole = AdminRole.VIEWER,
+        is_protected: bool = False,
     ) -> Admin:
         """建 principal(role=1) + admin（argon2 hash 密碼），同一交易原子落地。
 
         username 正規化（小寫）＋格式驗證後儲存；admin_role 預設 VIEWER（最低權限 fail-safe），
-        seed 傳 SUPER_ADMIN。
+        seed 傳 SUPER_ADMIN。is_protected 預設 False（管理 API 一律 False）；seed 建 root 傳 True
+        （§3.1/§3.7）——受保護者必為 super_admin，否則 CHECK ck_admins_protected_is_super 擋下。
 
         Raises:
             BadRequestError: username 格式不符 _USERNAME_RE
             ConflictError: username 已被使用（含大小寫變體）
+            IntegrityError: is_protected=True 但 admin_role != SUPER_ADMIN（CHECK）
         """
         u: str = normalize_username(username)
         if not _USERNAME_RE.fullmatch(u):
@@ -85,6 +121,7 @@ class AdminService:
                 name=name,
                 password_hash=password_hash,
                 admin_role=admin_role.value,
+                is_protected=is_protected,
                 principal_id=principal.id,
             )
             admin = await self.repo.add(admin)  # flush
@@ -95,14 +132,109 @@ class AdminService:
             await self.session.rollback()
             raise
 
+    async def update(self, admin_id: int, *, name: str, actor_principal_id: int) -> Admin:
+        """更新顯示名稱（不接受 username／不改權限／不撤 token）。§3.2。
+
+        軟刪除者 → NotFoundError。log actor → target。
+
+        Raises:
+            NotFoundError: admin 不存在或已軟刪除。
+        """
+        admin: Admin = await self.get(admin_id)
+        admin.name = name
+        await self.session.commit()
+        logger.info("Updated admin id=%s name by actor=%s", admin_id, actor_principal_id)
+        return admin
+
+    async def change_password(
+        self, admin_id: int, *, current_password: str, new_password: str
+    ) -> None:
+        """自助改自己密碼（驗舊）：換 hash 後撤該 principal 全部 refresh token（強制重登）。§3.3。
+
+        此路徑帳號必存在（呼叫者本人、已過 get_current_admin），故直接 verify、不需 dummy。
+        新密碼不得等於舊——以 verify_password(new, 舊 hash) 判定（argon2 隨機 salt 無法直接比 hash）。
+
+        Raises:
+            NotFoundError: admin 不存在或已軟刪除。
+            UnauthorizedError: 舊密碼不符（統一訊息）。
+            BadRequestError: 新密碼等於舊密碼。
+        """
+        admin: Admin = await self.get(admin_id)
+        if not await verify_password(current_password, admin.password_hash):
+            raise UnauthorizedError("Invalid credentials")
+        if await verify_password(new_password, admin.password_hash):
+            raise BadRequestError("New password must differ from the current password")
+        admin.password_hash = await hash_password(new_password)
+        now: datetime = datetime.now(UTC)
+        await self.refresh_repo.revoke_all_for_principal(admin.principal_id, now)
+        await self.session.commit()
+        logger.info("Admin id=%s changed own password; tokens revoked", admin_id)
+
+    async def set_admin_role(
+        self, admin_id: int, *, admin_role: AdminRole, actor_principal_id: int
+    ) -> Admin:
+        """升降權（改 admin_role 權限等級，非型別判別子 role）。授權即時（讀 child）。
+
+        執行順序（H2：idempotent 先於守衛）：
+          1. get（軟刪除 → NotFoundError）。
+          2. idempotent early-return：等級未變 → 直接回（在守衛前，避免「對受保護 root 設回
+             super_admin」被守衛誤擋）。
+          3. 受保護守衛（單列）：受保護者被降級（→非 super_admin）→ BusinessRuleError(422)。
+          4. 自我提權守衛（單列）：actor==target 且新等級 rank 更高 → BusinessRuleError(422)。
+          5. 設值 → commit。不撤 token（授權讀 child 現值 → 降權即時；grade 由 refresh 刷新）。
+
+        Raises:
+            NotFoundError: admin 不存在或已軟刪除。
+            BusinessRuleError: 降級受保護 root／自我提權（皆 422）。
+        """
+        admin: Admin = await self.get(admin_id)
+        # H2：idempotent 先於守衛
+        if admin.admin_role == admin_role.value:
+            return admin
+        # 受保護守衛（單列）：受保護者不可降級（→非 super_admin）
+        if admin.is_protected and admin_role is not AdminRole.SUPER_ADMIN:
+            raise BusinessRuleError("cannot demote the protected root admin")
+        # 自我提權守衛（單列）：本人不可把自己升到更高等級
+        if (
+            actor_principal_id == admin.principal_id
+            and ADMIN_ROLE_RANK[admin_role] > ADMIN_ROLE_RANK[AdminRole(admin.admin_role)]
+        ):
+            raise BusinessRuleError("cannot elevate your own role")
+        admin.admin_role = admin_role.value
+        await self.session.commit()
+        logger.info(
+            "Set admin id=%s admin_role=%s by actor=%s",
+            admin_id,
+            admin_role.value,
+            actor_principal_id,
+        )
+        return admin
+
+    def _guard_transition(
+        self, admin: Admin, actor_principal_id: int | None, *, action: str
+    ) -> None:
+        """封存／軟刪除的單列守衛（authoritative，繞過 api 亦安全）。§3.5。
+
+        M3：受保護／super_admin 守衛**恆適用**（含 actor=None 的 seed/script）；禁對自己僅在
+        有 actor 時適用。皆只讀 target 自己那一列——無聚合、無鎖、無 write skew。
+        """
+        if admin.is_protected:
+            raise BusinessRuleError(f"cannot {action} the protected root admin")
+        if admin.admin_role == AdminRole.SUPER_ADMIN.value:
+            raise BusinessRuleError(f"demote before {action[:-1]}ing a super admin")
+        if actor_principal_id is not None and actor_principal_id == admin.principal_id:
+            raise BusinessRuleError(f"cannot {action} yourself")
+
     async def archive(self, admin_id: int, *, actor_principal_id: int | None = None) -> Admin:
         """封存（active→archived）：設 archived_at/by、撤該 principal 的 refresh token。
 
-        已封存則 idempotent 直接回。成對寫入 archived_at 與 archived_by（見 §2.2）。
+        已封存則 idempotent 直接回（在守衛前）。成對寫入 archived_at 與 archived_by（見 §2.2）。
+        受保護／super_admin-須先降級／禁對自己守衛見 §3.5。
         """
         admin: Admin = await self.get(admin_id)
         if admin.archived_at is not None:
-            return admin
+            return admin  # idempotent（在守衛前）
+        self._guard_transition(admin, actor_principal_id, action="archive")
         now: datetime = datetime.now(UTC)
         admin.archived_at = now
         admin.archived_by = actor_principal_id
@@ -124,8 +256,10 @@ class AdminService:
         """軟刪除（active/archived→deleted）：設 deleted_at/by、撤 refresh token。
 
         不刪 principals、不觸發 CASCADE（見 §2.5）。對已刪者再 delete → NotFoundError。
+        受保護／super_admin-須先降級／禁對自己守衛見 §3.5。
         """
         admin: Admin = await self.get(admin_id)
+        self._guard_transition(admin, actor_principal_id, action="delete")
         now: datetime = datetime.now(UTC)
         admin.deleted_at = now
         admin.deleted_by = actor_principal_id

@@ -56,6 +56,11 @@ logger: logging.Logger = logging.getLogger(__name__)
 PASSWORD_PROVIDER: str = "password"
 
 
+def _grade_of(child: User | Admin) -> str:
+    """讀 child 的等級字串供 grade claim：admin→admin_role、user→user_tier（rbac §4）。"""
+    return child.admin_role if isinstance(child, Admin) else child.user_tier
+
+
 def _as_utc(dt: datetime) -> datetime:
     """Normalize a DB-loaded datetime to aware-UTC.
 
@@ -131,8 +136,10 @@ class AuthService:
                 credential=password_hash,
             )
             await self.identity_repo.add(identity)
-            # 4. 產 access token + refresh token（sub = principal_id、role = 0）
-            access_token: str = create_access_token(user.principal_id, Role.USER)
+            # 4. 產 access token + refresh token（sub = principal_id、role = 0、grade = user_tier）
+            access_token: str = create_access_token(
+                user.principal_id, Role.USER, grade=_grade_of(user)
+            )
             refresh_token, _ = await self._issue_refresh_token(user.principal_id, str(uuid4()))
             # 5. 唯一一次 commit：全部原子落地
             await self.session.commit()
@@ -164,7 +171,7 @@ class AuthService:
         if not user.is_active:
             raise UnauthorizedError("Invalid email or password")
 
-        access_token: str = create_access_token(user.principal_id, Role.USER)
+        access_token: str = create_access_token(user.principal_id, Role.USER, grade=_grade_of(user))
         refresh_token, _ = await self._issue_refresh_token(user.principal_id, str(uuid4()))
         await self.session.commit()
 
@@ -192,7 +199,9 @@ class AuthService:
         if admin is None or not password_ok or not admin.is_active:
             raise UnauthorizedError("Invalid username or password")
 
-        access_token: str = create_access_token(admin.principal_id, Role.ADMIN)
+        access_token: str = create_access_token(
+            admin.principal_id, Role.ADMIN, grade=_grade_of(admin)
+        )
         refresh_token, _ = await self._issue_refresh_token(admin.principal_id, str(uuid4()))
         await self.session.commit()
 
@@ -252,8 +261,9 @@ class AuthService:
             raise UnauthorizedError("Invalid refresh token")
 
         await self.session.commit()
-        # 依 principal.role 重簽正確 role 的 access token（天然防提權）
-        new_access: str = create_access_token(rt.principal_id, role)
+        # 依 principal.role 重簽正確 role 的 access token（天然防提權）；順手讀 child 最新
+        # 等級重簽 grade → 每次 rotation 自動刷新（陳舊窗口 ≤ 一個 access TTL，見 rbac §5.1）。
+        new_access: str = create_access_token(rt.principal_id, role, grade=_grade_of(child))
         logger.info("Refreshed token for principal id=%s role=%s", rt.principal_id, int(role))
         return TokenPayload(access_token=new_access, refresh_token=new_plain)
 

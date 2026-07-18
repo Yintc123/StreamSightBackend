@@ -8,6 +8,7 @@ from datetime import datetime
 
 from pydantic import ConfigDict, Field
 
+from app.core.enums import UserTier
 from app.dtos import UserBase
 
 
@@ -19,5 +20,7 @@ class UserResponse(UserBase):
 
     id: int = Field(description="User ID")
     is_active: bool = Field(description="Whether the account is active")
+    # 等級（rbac §5.2）：from_attributes 讀 user.user_tier。/me 為前端等級真實來源。
+    tier: UserTier = Field(validation_alias="user_tier", description="User tier (permission level)")
     created_at: datetime = Field(description="Creation timestamp")
     updated_at: datetime = Field(description="Last update timestamp")

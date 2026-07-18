@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import decode_token
 from app.core.config import get_app_settings
+from app.core.enums import AdminRole
 from app.models import Admin
 from app.services import AdminService
 from tests.conftest import ADMIN_PASSWORD, ADMIN_USERNAME
@@ -119,7 +120,12 @@ async def test_archived_admin_cannot_login_or_refresh(
     client: AsyncClient, admin: Admin, db_session: AsyncSession
 ) -> None:
     login: dict[str, Any] = (await _admin_login(client)).json()
-    await AdminService(db_session).archive(admin.id)
+    svc = AdminService(db_session)
+    # 封存前先自我降級（super_admin 須先降級才能封存，§3.5；self-demotion 允許）
+    await svc.set_admin_role(
+        admin.id, admin_role=AdminRole.VIEWER, actor_principal_id=admin.principal_id
+    )
+    await svc.archive(admin.id)
 
     assert (await _admin_login(client)).status_code == status.HTTP_401_UNAUTHORIZED
     refreshed: Response = await client.post(
@@ -132,7 +138,12 @@ async def test_soft_deleted_admin_cannot_login_or_refresh(
     client: AsyncClient, admin: Admin, db_session: AsyncSession
 ) -> None:
     login: dict[str, Any] = (await _admin_login(client)).json()
-    await AdminService(db_session).delete(admin.id)
+    svc = AdminService(db_session)
+    # 軟刪除前先自我降級（super_admin 須先降級才能刪除，§3.5）
+    await svc.set_admin_role(
+        admin.id, admin_role=AdminRole.VIEWER, actor_principal_id=admin.principal_id
+    )
+    await svc.delete(admin.id)
 
     assert (await _admin_login(client)).status_code == status.HTTP_401_UNAUTHORIZED
     refreshed: Response = await client.post(

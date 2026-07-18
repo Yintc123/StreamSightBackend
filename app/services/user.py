@@ -3,7 +3,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.enums import Role
+from app.core.enums import Role, UserTier
 from app.core.exceptions import ConflictError, NotFoundError
 from app.core.security import mask_email
 from app.dtos import UserCreate, UserUpdate
@@ -93,6 +93,18 @@ class UserService:
             await self.session.commit()
             await self.session.refresh(user)
             logger.info("Updated user id=%s fields=%s", user.id, list(updates.keys()))
+            return user
+        except Exception:
+            await self.session.rollback()
+            raise
+
+    async def set_tier(self, user_id: int, tier: UserTier) -> User:
+        """升降級一般 User（寫 user_tier 現值）。授權即時（讀 child），見 rbac §5.1。"""
+        user: User = await self.get(user_id)
+        user.user_tier = tier.value
+        try:
+            await self.session.commit()
+            logger.info("Set user id=%s tier=%s", user_id, tier.value)
             return user
         except Exception:
             await self.session.rollback()

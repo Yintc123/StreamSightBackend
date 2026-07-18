@@ -10,6 +10,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.core.config import get_app_settings
 from app.core.db import Base
 from app.core.db.types import DeterministicEncryptedString
+from app.core.enums import UserTier
 
 # Load encryption key at module import time (Option A: init-time binding).
 # Column type instances are class-level, so the key is bound once per process.
@@ -42,6 +43,14 @@ class User(Base):
     # is_active 留在 child（本地欄位）：高頻已知型別讀取免 join、async 免 MissingGreenlet（見 D4b）
     is_active: Mapped[bool] = mapped_column(default=True)
 
+    # 權限等級（可變，供 rbac 授權與 grade claim）。存字串值 + CHECK 硬化；
+    # 預設 FREE（最低權限 fail-safe）。child 本地欄位，get_current_user 讀它免 join。見 rbac §3.2。
+    user_tier: Mapped[str] = mapped_column(
+        String(20),
+        default=UserTier.FREE.value,
+        server_default=UserTier.FREE.value,
+    )
+
     # 認證 credential (password hash、OAuth sub) 存在 Identity 表、不在此
     # 見 app/models/identity.py
 
@@ -54,6 +63,7 @@ class User(Base):
             name="fk_users_principal_role",
         ),
         CheckConstraint("role = 0", name="ck_users_role_user"),
+        CheckConstraint("user_tier IN ('free', 'premium')", name="ck_users_user_tier"),
     )
 
     def __repr__(self) -> str:

@@ -43,6 +43,7 @@ async def create_initial_admin(
         name=name or username,
         password=password,
         admin_role=AdminRole.SUPER_ADMIN,
+        is_protected=True,  # bootstrap root：「≥1 super_admin」不變式的唯一建立點（§3.7）
     )
     logger.info("Created initial admin %s", username)
     return admin
