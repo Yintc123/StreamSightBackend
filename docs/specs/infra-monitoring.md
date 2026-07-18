@@ -16,7 +16,7 @@
 
 ## 0. 功能總覽
 
-**一句話**：FastAPI background task 每 5 秒輪詢 `node-exporter` 與 `mysqld-exporter` 的 `/metrics` endpoint，計算各指標後以 JSON string 存入 Redis Sorted Set（保留最近 24 小時），`GET /admin/monitoring/infra` 支援時間範圍查詢，回傳由舊到新排列的歷史陣列供 Streamlit 繪製折線圖。
+**一句話**：FastAPI background task 每 5 秒輪詢 `node-exporter` 與 `mysqld-exporter` 的 `/metrics` endpoint，計算各指標後以 JSON string 存入 Redis Sorted Set（保留最近 24 小時），`GET /monitoring/infra` 支援時間範圍查詢，回傳由舊到新排列的歷史陣列供 Streamlit 繪製折線圖。
 
 | 採集來源 | 指標 | 端點 |
 |---|---|---|
@@ -32,7 +32,7 @@ FastAPI lifespan background task（每 5s）
   └── ZADD monitoring:infra:history <ts_ms> <InfraSnapshot JSON string>
       ZREMRANGEBYSCORE monitoring:infra:history 0 <now_ms - 24h_ms>  ← 刪除 24 小時前資料
 
-GET /admin/monitoring/infra?start_ms=<epoch_ms>&end_ms=<epoch_ms>
+GET /monitoring/infra?start_ms=<epoch_ms>&end_ms=<epoch_ms>
   └── ZRANGEBYSCORE monitoring:infra:history <start_ms> <end_ms>
       → JSON parse 每筆 → 天然由舊到新（score 升冪）→ InfraHistoryResponse
 ```
@@ -49,7 +49,7 @@ Streamlit 即時監控頁（`pages/realtime_monitor.py`）需要顯示 DB 主機
 - **採集 MariaDB 引擎指標**：透過 `mysqld-exporter` 取得連線數、Buffer Pool 命中率。
 - **所有指標正確計算**：累計計數器（CPU / IOPS）需兩次取樣差值計算，由 background task 維護前次快照。
 - **24 小時滾動歷史**：Redis Sorted Set 依時間戳為 score，保留最近 24 小時，供前端自由選取時間段。
-- **時間範圍查詢**：`GET /admin/monitoring/infra?start_ms=&end_ms=`，未帶參數時預設回傳最近 1 小時，避免一次傳回全部 24 小時資料（約 17,280 筆）。
+- **時間範圍查詢**：`GET /monitoring/infra?start_ms=&end_ms=`，未帶參數時預設回傳最近 1 小時，避免一次傳回全部 24 小時資料（約 17,280 筆）。
 - **不依賴 Prometheus**：FastAPI 直接輪詢 exporter endpoint，不需要 Prometheus server。
 
 ### 非目標
@@ -235,7 +235,7 @@ if infra_sampler:
 
 ### 2.11 存取控制（D9）
 
-`GET /admin/monitoring/infra` 使用既有 `get_current_admin`（任一 admin 皆可，`VIEWER` 以上），不額外加 `require_min_admin_role`。理由：硬體資源使用率屬運維資訊，不含業務敏感資料，且 Streamlit 即時監控頁本身已限制 admin 才能存取。
+`GET /monitoring/infra` 使用既有 `get_current_admin`（任一 admin 皆可，`VIEWER` 以上），不額外加 `require_min_admin_role`。理由：硬體資源使用率屬運維資訊，不含業務敏感資料，且 Streamlit 即時監控頁本身已限制 admin 才能存取。
 
 ---
 
@@ -284,7 +284,7 @@ if infra_sampler:
 
 預設查詢範圍由 `monitoring_infra_default_query_hours`（預設 1）決定。
 
-### 3.5 API 回應（`GET /admin/monitoring/infra`）
+### 3.5 API 回應（`GET /monitoring/infra`）
 
 **由舊到新排列**（index 0 = 最舊，index -1 = 最新），`ZRANGEBYSCORE` 天然升冪，不需反轉。Streamlit 直接轉 DataFrame 繪製折線圖：
 
@@ -324,8 +324,8 @@ if infra_sampler:
 
 ```
 app/
-├── api/routers/admin/
-│   └── monitoring.py              # 新增 GET /admin/monitoring/infra 端點
+├── api/routers/monitoring/
+│   └── router.py                  # 新增 GET /monitoring/infra 端點
 ├── services/monitoring/
 │   ├── infra_probe.py             # InfraProbe + InfraProbeError + compute_* 純函式
 │   └── infra_sampler.py           # InfraSampler：background task，寫 Redis Sorted Set
@@ -440,7 +440,7 @@ class HealthExporterResponse(BaseModel):
     error: str | None = None
 ```
 
-### `GET /admin/monitoring/infra`
+### `GET /monitoring/infra`
 
 | 項目 | 說明 |
 |---|---|
@@ -554,7 +554,7 @@ mock `httpx.AsyncClient`（`patch("app.api.routers.health.router.httpx.AsyncClie
 - mock 拋 `httpx.ConnectError` → 200 + `status=unreachable` + `error 非空` + `response_time_ms=null`
 - `node-exporter` / `mysqld-exporter` 各自測 ok + unreachable 共 4 個測試
 
-### 6.5 `GET /admin/monitoring/infra`（integration）✅
+### 6.5 `GET /monitoring/infra`（integration）✅
 
 四種時間範圍情境（對應 §2.4）全部覆蓋：
 
@@ -580,7 +580,7 @@ mock `httpx.AsyncClient`（`patch("app.api.routers.health.router.httpx.AsyncClie
 5. `InfraSampler`（unit 測試：§6.3，fakeredis + 假 probe；驗 ZADD / ZREMRANGEBYSCORE 語意）。
 6. `app/app.py` lifespan 掛載 `InfraSampler`（lifespan 建立 `httpx.AsyncClient` + `InfraProbe`，條件：`monitoring_infra_enabled and app_env != test`）。
 7. `app/core/exceptions/base.py` 新增 `ServiceUnavailableError`（`status_code=503, error_code="service_unavailable"`）。**`BadRequestError`（400）已存在於既有例外體系（已驗證），直接沿用，不重複新增。** unit 測試只驗 `ServiceUnavailableError` 的 `status_code` 與 `error_code`。
-8. `GET /admin/monitoring/infra` 端點（integration 測試：§6.5，含時間範圍查詢與驗證錯誤案例）。
+8. `GET /monitoring/infra` 端點（integration 測試：§6.5，含時間範圍查詢與驗證錯誤案例）。
 9. `GET /health/node-exporter` + `GET /health/mysqld-exporter`（`HealthExporterResponse` schema + `_check_exporter` 輔助函式；integration 測試：§6.4，mock httpx ok / unreachable 共 4 個測試）。
 10. 提交前檢查全綠（`ruff check` / `ruff format --check` / `pyright` / `pytest`）。
 11. 真 node-exporter + mysqld-exporter 煙霧測試（手動驗證 compose 啟動後端點回傳非空，含帶 / 不帶查詢參數兩種呼叫）。

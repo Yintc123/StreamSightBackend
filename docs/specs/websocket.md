@@ -24,7 +24,7 @@
 | 連線者 | **Admin（`role=1`）全等級** | 認證重用 admin JWT;連線後可依 `admin_role` 對敏感主題再授權 |
 | 部署規模 | **先支援多實例**（Redis pub/sub），單實例為特例 | `ConnectionManager` 抽象 fan-out;Redis backend 可延後實作但介面先定 |
 
-**端點（暫定）**：`POST /admin/ws/ticket`（HTTP,JWT 認證 → 換 ticket）＋ `GET /admin/ws?ticket=…`（WebSocket upgrade,帶 ticket;掛既有 `/admin` 前綴）。
+**端點（暫定）**：`POST /ws/ticket`（HTTP,JWT 認證 → 換 ticket）＋ `GET /ws?ticket=…`（WebSocket upgrade,帶 ticket）。
 
 ---
 
@@ -60,8 +60,8 @@ CMS 需要「伺服器主動把即時資料/事件推給後台前端」的能力
 
 **定案：ticket 換取機制（two-step，Redis-backed、短命、單次）**：
 
-1. **`POST /admin/ws/ticket`**（一般 HTTP，以 `Authorization: Bearer <access_token>` 認證，走既有 `get_current_admin` → 必為 `role=1` 且 active）→ 回一張**短命、單次、opaque** 的 ticket。
-2. client 用 ticket 建 WS：`new WebSocket("wss://host/admin/ws?ticket=<ticket>")`。
+1. **`POST /ws/ticket`**（一般 HTTP，以 `Authorization: Bearer <access_token>` 認證，走既有 `get_current_admin` → 必為 `role=1` 且 active）→ 回一張**短命、單次、opaque** 的 ticket。
+2. client 用 ticket 建 WS：`new WebSocket("wss://host/ws?ticket=<ticket>")`。
 3. server 在 **accept 前**驗 ticket（見下）→ 解出 `principal_id` → **重載 `Admin` 檢查 `is_active`／讀 `admin_role` 現值** → 通過才 `accept`;失敗 `close(4401)`、不 accept。
 
 **ticket 儲存與消費（Redis，原子單次）**：
@@ -117,7 +117,7 @@ CMS 需要「伺服器主動把即時資料/事件推給後台前端」的能力
 | **logout_all**（登出所有裝置） | `ws:disconnect:principal:{id}` | 該 principal 的**全部** WS |
 | **logout**（單一裝置/session） | `ws:disconnect:sid:{family_id}` | **僅該 session** 的 WS |
 
-- **session 綁定（供單一 logout 精準斷線）**：WS 連線記錄其 **session id（`sid` = refresh `family_id`）**。來源：`login`／`admin_login` 簽發 access token 時加 **`sid` claim**（= 該登入的 refresh `family_id`）→ `POST /admin/ws/ticket` 讀 `sid` 存進 ticket → WS 連線帶 `sid`。單一 `logout`（撤某 refresh token）知其 `family_id` → 只 kick 該 sid 的 WS，不誤斷其他裝置。
+- **session 綁定（供單一 logout 精準斷線）**：WS 連線記錄其 **session id（`sid` = refresh `family_id`）**。來源：`login`／`admin_login` 簽發 access token 時加 **`sid` claim**（= 該登入的 refresh `family_id`）→ `POST /ws/ticket` 讀 `sid` 存進 ticket → WS 連線帶 `sid`。單一 `logout`（撤某 refresh token）知其 `family_id` → 只 kick 該 sid 的 WS，不誤斷其他裝置。
   - **前置**：access token 新增 `sid` claim（JWT 小幅擴充，見 §10 Q9）。初始 admin（`sub=0`）無 refresh/session、無 `sid` → 只受 principal 級 kick，不受單一 logout 影響（合理:它本就不走 refresh）。
 - **兜底（logout 不改 `is_active`，故需擴充複查）**：§2.2 的定期複查**除 `is_active` 外，也驗該連線 `sid` 的 refresh family 是否仍有未撤 token**——若整個 session 已登出（family 無 live token）→ `close(4401)`。如此 logout 即使 kick 漏掉，也會在複查週期內被斷（不必依賴 pub/sub 可靠性）。
   - > **為何不能只靠 kick**：logout 不改 `is_active`、Redis pub/sub 又是 at-most-once;缺了「session 有效性複查」，漏掉的 kick 會讓已登出的 WS 永久存活（連線已無硬性上限）。
@@ -147,7 +147,7 @@ CMS 需要「伺服器主動把即時資料/事件推給後台前端」的能力
 
 ```
 app/
-├── api/routers/admin/ws.py        # POST /admin/ws/ticket（換票）+ GET /admin/ws（握手驗票、accept、收控制訊息迴圈）
+├── api/routers/ws/router.py        # POST /ws/ticket（換票）+ GET /ws（握手驗票、accept、收控制訊息迴圈）
 ├── services/ws/
 │   ├── ticket.py                  # TicketService（Redis：簽發 + 原子單次消費）
 │   ├── manager.py                 # ConnectionManager（per-instance 註冊/投遞）
@@ -178,7 +178,7 @@ def extract_sid(payload: dict) -> str | None: ...             # payload.get("sid
 - `refresh`：rotation **保持同一 `family_id`**（`rt.family_id`）→ 新 access token 帶 `sid=rt.family_id`。故**同一 session 跨多次 refresh 的 `sid` 不變**（穩定的 session 識別，正是所需）。
 - **初始 admin（SSM，`sub=0`）**：`admin_login` 走 access-only、不建 refresh family → **無 `sid`**;其 WS 不受單一 logout 影響（本就不走 refresh），只受 principal 級 kick。
 
-**ticket 端點取 `sid`**：`POST /admin/ws/ticket` 從當次 access token 取 `sid`（`extract_sid(decode_token(token))`，或由認證 dependency 一併回傳）→ 存進 ticket（§2.1）→ WS 連線帶 `sid`。
+**ticket 端點取 `sid`**：`POST /ws/ticket` 從當次 access token 取 `sid`（`extract_sid(decode_token(token))`，或由認證 dependency 一併回傳）→ 存進 ticket（§2.1）→ WS 連線帶 `sid`。
 
 **語意／邊界**：
 - `sid` = `family_id`（uuid4 字串）;非機密（僅 session 識別），可直接用。無 `sid` 的連線（初始 admin、或未帶 sid 的舊 token）→ 不參與 sid-kick，只受 principal 級 kick 與定期複查。
@@ -197,7 +197,7 @@ def extract_sid(payload: dict) -> str | None: ...             # payload.get("sid
 **(b) 同分頁取代（防殭屍分頁，鍵＝`(sid, cid)`）**
 - 連線鍵＝`(sid, cid)`;`register(new)` 時若已有**同鍵**舊連線 → `old.close(4409)` ＋ `_teardown(old)` → 再註冊 `new`。
 - **只取代同一分頁自己的舊連線**（同 `sid` ＋ 同 `cid`），**不影響同一登入的其他分頁**（同 `sid`、不同 `cid`）、也**不會跨分頁 flapping**。
-- `cid` 帶法：**WS 連線 query param**（`/admin/ws?ticket=…&cid=<clientId>`），**不進 ticket**（cid 非認證資料、非機密;ticket 只放 `principal_id`+`sid`，§2.1）。**可選**：未帶 `cid` 的連線不參與 same-tab 取代，只靠 (a) ＋ 心跳清理。
+- `cid` 帶法：**WS 連線 query param**（`/ws?ticket=…&cid=<clientId>`），**不進 ticket**（cid 非認證資料、非機密;ticket 只放 `principal_id`+`sid`，§2.1）。**可選**：未帶 `cid` 的連線不參與 same-tab 取代，只靠 (a) ＋ 心跳清理。
 - **client 契約**：連線收到 `4409` → **不要自動重連**（已有更新連線;避免與自己較新的連線互踢）。網路類斷線（`4000`/`1013`/`1012`）才走退避重連。
 
 **clientId（`cid`）長什麼樣（前端契約）**：
@@ -206,7 +206,7 @@ def extract_sid(payload: dict) -> str | None: ...             # payload.get("sid
   ```js
   let cid = sessionStorage.getItem("ws_cid");
   if (!cid) { cid = crypto.randomUUID(); sessionStorage.setItem("ws_cid", cid); }
-  new WebSocket(`/admin/ws?ticket=${ticket}&cid=${cid}`);
+  new WebSocket(`/ws?ticket=${ticket}&cid=${cid}`);
   ```
 - **性質**：純**去重鍵**、**非機密、非認證**;server 不信任、不驗身分（亂帶只會取代自己 `sid` 的連線）。server 端只做基本**清洗**（如限 `≤64` 字元、字元集 `[A-Za-z0-9_-]`）防注入/濫用。
 - **不要用**：`localStorage`（跨分頁共享 → 所有分頁同 `cid` → 退化成 per-sid、會互踢）、cookie、或任何可反查使用者身分的值（`cid` 不該能識別人）。
@@ -218,11 +218,11 @@ def extract_sid(payload: dict) -> str | None: ...             # payload.get("sid
 ### 3.1 認證流程（兩段式）
 
 **第一段（HTTP，換 ticket）**：
-1. client：`POST /admin/ws/ticket`，header `Authorization: Bearer <access_token>`。
+1. client：`POST /ws/ticket`，header `Authorization: Bearer <access_token>`。
 2. server：`get_current_admin`（驗 `role=1`＋active）＋ `extract_sid(decode_token(token))` 取 `sid` → 產 `secrets.token_urlsafe(32)` → `SET ws:ticket:{t} {principal_id, sid} EX 180` → 回 `{ "ticket": t, "expires_in": 180 }`。
 
 **第二段（WS handshake，認證於 accept 前）**：
-3. client：`new WebSocket("/admin/ws?ticket=<t>&cid=<clientId>")`（`cid` 可選、per 分頁，§2.12b）。
+3. client：`new WebSocket("/ws?ticket=<t>&cid=<clientId>")`（`cid` 可選、per 分頁，§2.12b）。
 4. server：讀 `query_params["ticket"]` → Redis `GETDEL ws:ticket:{t}`（原子單次）→ 無值 → `close(4401)`;讀 `query_params.get("cid")`（清洗 ≤64 字元、`[A-Za-z0-9_-]`）。
 5. 有值 → 解出 `{principal_id, sid}` → 重載 `Admin`（`sub=0` → 合成初始 admin）→ 驗 `is_active`。
 6. 通過 → `accept()` → `manager.register`（連線帶 `sid`+`cid`;同 `(sid,cid)` 舊連線 → `close(4409)` 取代，§2.12b）→ 送 `welcome`;失敗 → `close(4401)`（見 §3.4），不 accept。
@@ -323,7 +323,7 @@ class WsReauthService:
 
 - **DI／lifespan**：`ConnectionManager` 為 per-process 單例（app.state）;`bridge` 背景 task 於 lifespan 啟停;`Publisher` 由 Redis client 建構，供各業務 service 注入。
 - **DB session（§2.2）**：新增 `get_session_factory()`（回 `AsyncSessionLocal`，與 `get_session` **並存**）＋ provider `get_ws_reauth_service(factory=Depends(get_session_factory))`（**比照 `get_auth_service` 形狀**，見 `api/dependencies/services.py`）。WS 端點以 `Depends(get_ws_reauth_service)` 取得 service，於 accept 時**捕獲一次**交給背景複查 task 反覆用（背景 task 在 request scope 外，`Depends` 只解析一次）。`Connection` 只存 accept 當下快照的**原生值**（`principal_id`／`admin_role`／`sid`／`is_active`），授權現值一律靠複查重讀，**不掛 ORM `Admin` 物件**（避免 detached／陳舊）。
-- **WS 端點**（`api/routers/admin/ws.py`）：認證 → accept → `manager.register` → 迴圈 `receive_json`（控制訊息）→ 斷線時 `manager.unregister`;送出由 per-connection writer task 從佇列取。
+- **WS 端點**（`api/routers/ws/router.py`）：認證 → accept → `manager.register` → 迴圈 `receive_json`（控制訊息）→ 斷線時 `manager.unregister`;送出由 per-connection writer task 從佇列取。
 - **前置依賴（repository）**：定期複查（§2.2）驗 session 有效性需 `RefreshTokenRepository.has_live_tokens_in_family(family_id, *, now)`（唯讀 `EXISTS`，排除已撤銷/已過期）——屬 refresh-token 層，見 [`refresh-token-rotation.md`](./refresh-token-rotation.md) §5.2。
 
 ### 4.1 設定（Config，`app/core/config`）
@@ -353,9 +353,9 @@ class WsReauthService:
 
 ```
 連線（兩段式認證）：
-  ① POST /admin/ws/ticket  (Authorization: Bearer JWT)
+  ① POST /ws/ticket  (Authorization: Bearer JWT)
        → get_current_admin(role==1, active) → SET ws:ticket:{t}=pid EX 180 → 回 {ticket}
-  ② WS upgrade  /admin/ws?ticket=<t>
+  ② WS upgrade  /ws?ticket=<t>
        → GETDEL ws:ticket:{t} ─ 無值 → close(4401)      （單次、防重放）
        → 重載 Admin(pid)：active? ─ 否 → close(4401)
        → accept → manager.register → 送 welcome
@@ -385,7 +385,7 @@ class WsReauthService:
 
 ## 6. 安全性考量
 
-- **ticket 換取（不把長命 JWT 放上 WS）**：長命 access token 只在 `POST /admin/ws/ticket` 的 HTTP header;WS URL 只帶**短命（預設 180s）、單次**的 ticket，即使入 log/URL 也無法重放（Redis `GETDEL` 原子單次，第一次消費即失效;正常流程換票後立即連、實際窗口數毫秒）。認證前不 accept，未授權連線不佔資源。
+- **ticket 換取（不把長命 JWT 放上 WS）**：長命 access token 只在 `POST /ws/ticket` 的 HTTP header;WS URL 只帶**短命（預設 180s）、單次**的 ticket，即使入 log/URL 也無法重放（Redis `GETDEL` 原子單次，第一次消費即失效;正常流程換票後立即連、實際窗口數毫秒）。認證前不 accept，未授權連線不佔資源。
 - **僅 admin**：`role != 1` 一律拒（4401）;連線後敏感 topic 再依 `admin_role` 授權（§2.9）。
 - **授權讀 child 現值**：連線期間降權/封存即時反映（kick 或後續授權失敗），不盲信 token claim。
 - **無連線硬性上限**（使用者可長時間停留）;撤權靠 **kick**（§2.5）＋**定期 `is_active` 複查**（§2.2，預設 5 分）＋**心跳判死**;access token 只用於換 ticket、不在 WS 上，故其 TTL 不限制連線。
@@ -446,9 +446,9 @@ async def ws_client(
 用法（兩段式，**同一 client**）：
 ```python
 from httpx_ws import aconnect_ws
-resp = await ws_client.post("/admin/ws/ticket", headers={"Authorization": f"Bearer {access}"})
+resp = await ws_client.post("/ws/ticket", headers={"Authorization": f"Bearer {access}"})
 ticket = resp.json()["ticket"]
-async with aconnect_ws(f"http://test/admin/ws?ticket={ticket}&cid=tab-1", ws_client) as ws:
+async with aconnect_ws(f"http://test/ws?ticket={ticket}&cid=tab-1", ws_client) as ws:
     welcome = await ws.receive_json()
 ```
 
@@ -464,7 +464,7 @@ async with aconnect_ws(f"http://test/admin/ws?ticket={ticket}&cid=tab-1", ws_cli
 4. **長連線 session 別用 `Depends(get_session)`**：WS 端點／複查 task 走 `get_session_factory`（§2.2／§4）。測試須**額外 override `get_session_factory`**（如上 fixture）回一個 yield 共享 `db_session` 的工廠；否則複查 task 會開到**另一條 connection**（SQLite in-memory 為另一個 DB）→ 讀不到 fixture、複查測試失真。此為 §7.5 複查斷線測試的必要地基。
 
 ### 7.0 ticket 端點（integration + unit）
-- `POST /admin/ws/ticket`：合法 admin JWT → 200 + `{ticket, expires_in}`;無/壞 JWT／`role=0`／inactive → 401/403（沿用 `get_current_admin`）。
+- `POST /ws/ticket`：合法 admin JWT → 200 + `{ticket, expires_in}`;無/壞 JWT／`role=0`／inactive → 401/403（沿用 `get_current_admin`）。
 - `TicketService.consume`：有效 ticket → 回 principal_id;**第二次消費同一 ticket → None**（單次、防重放）;過期（TTL 到）→ None。
 
 ### 7.1 WS 認證（integration）
@@ -516,7 +516,7 @@ async with aconnect_ws(f"http://test/admin/ws?ticket={ticket}&cid=tab-1", ws_cli
    - `create_access_token` 加 `sid` 參數 + `extract_sid`;`login`/`admin_login`/`register`/`refresh` 帶入當次 `family_id`（§2.11）。**規格已落於** [`rbac.md`](./rbac.md) §4.1（介面）／§5.1（簽發串接）／§8.1、§8.3（測試）——WS 依賴它。
    - `RefreshTokenRepository.has_live_tokens_in_family(family_id, *, now)`（定期複查 session 有效性用，§2.2）。**規格已落於** [`refresh-token-rotation.md`](./refresh-token-rotation.md) §5.2／§8.2。
 1. `dtos/ws.py` 封套模型 + `protocol.py` 型別/關閉碼常數 + **`ws_*` config 進 `BaseAppSettings`（§4.1）** + **測試地基：`httpx-ws` 進 dev 依賴、`ws_client` fixture 進 conftest（§7.0-a，spike 已驗證）**（7.6 部分）。
-2. `TicketService`（Redis 簽發 `{principal_id, sid}` + 原子單次 `GETDEL` 消費）+ `POST /admin/ws/ticket` 端點（取 `sid`）（7.0）。
+2. `TicketService`（Redis 簽發 `{principal_id, sid}` + 原子單次 `GETDEL` 消費）+ `POST /ws/ticket` 端點（取 `sid`）（7.0）。
 3. WS 端點 handshake 驗票（`GETDEL` ticket → 重載 Admin：role=1 + active → accept；否則 close 4401）+ `welcome`;連線記 `principal_id` + `sid`。**新增 `get_session_factory`（§2.2/§4），handshake 重載 Admin 以短命 session 進行、不用 `Depends(get_session)`**（7.1）。
 4. `ConnectionManager`：register（含同 `(sid,cid)` 取代 §2.12b）/unregister/subscribe/unsubscribe/`send_local` + 有界佇列 writer + `_teardown`（送出失敗即斷 §2.12a）（7.2/7.3/7.7）。
 5. 控制訊息迴圈：subscribe/unsubscribe（含 topic 授權）/pong;未知 type → error（7.2/7.6）。
@@ -530,7 +530,7 @@ async with aconnect_ws(f"http://test/admin/ws?ticket={ticket}&cid=tab-1", ws_cli
 
 ## 9. 已定案決策
 
-- ✅ **兩段式 ticket 認證**：`POST /admin/ws/ticket`（JWT/`get_current_admin` 認證）換**短命（預設 180s）、單次、Redis-backed** ticket → WS `?ticket=` 連線,accept 前 `GETDEL` 驗票並重載 Admin 讀現值。長命 JWT 不進 WS URL;防重放。TTL＝換票→開連線的寬限窗（非連線時長）。只 admin（`role=1`）全等級可連。
+- ✅ **兩段式 ticket 認證**：`POST /ws/ticket`（JWT/`get_current_admin` 認證）換**短命（預設 180s）、單次、Redis-backed** ticket → WS `?ticket=` 連線,accept 前 `GETDEL` 驗票並重載 Admin 讀現值。長命 JWT 不進 WS URL;防重放。TTL＝換票→開連線的寬限窗（非連線時長）。只 admin（`role=1`）全等級可連。
 - ✅ **Server→Client 推播為主**;client 僅送控制訊息（subscribe/unsubscribe/pong）。
 - ✅ **無連線硬性上限**（使用者可長時間停留）;連線壽命由**心跳判死＋帳號失效 kick（§2.5）＋定期 `is_active` 複查（§2.2，預設 5 分）**治理;與 access token TTL 解耦（token 只用於換 ticket）。
 - ✅ **`ConnectionManager`（per-instance）+ `Publisher` + Redis pub/sub fan-out**;規格以**多實例**為準、單實例為特例（部署規模未定）。
