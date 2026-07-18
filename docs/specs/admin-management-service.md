@@ -26,7 +26,7 @@
 ### 目標
 
 - 新增 service 方法：`update`（改 `name`）、`change_password`（自助、驗舊）、`set_admin_role`（升降權）、`list_admins`。**不提供 `reset_password`**（super_admin 重設他人密碼）——目前不規劃此功能。
-- `create` 增參 `is_protected: bool = False`（seed 建 root 時傳 `True`）。
+- `create` 增參 `is_protected: bool = False`（管理 API 一律傳 `False`；`is_protected=True` 為可選 DB 硬化，預設無列被標 protected）。
 - 疊加**單列守衛**（authoritative，放 service）：
   - **受保護 admin 不可降級／封存／軟刪除**（保證 ≥1 super_admin，§3.5）。
   - **任何 super_admin 不可被直接封存／軟刪除**——須先 `set_admin_role` 降為 editor／viewer（使用者定案的兩步工作流，§3.5）。
@@ -53,7 +53,7 @@
 - 密碼強度 `min_length=8, max_length=128`（DTO 邊界驗；service 收到的已合法）。
 
 ### 2.3 `actor_principal_id`（操作者稽核）
-「改動他人帳號」的方法帶 `actor_principal_id`（端點傳 `current_admin.principal_id`）：狀態轉移成對寫 `archived_by`／`deleted_by`；update／set_admin_role 以 log 記 `actor → target`（不加 `*_by` 欄，承 model §2.4）。沿用既有 `archive`／`delete` 的 `actor_principal_id: int | None = None`（seed／script 傳 `None`）。
+「改動他人帳號」的方法帶 `actor_principal_id`（端點傳 `current_admin.principal_id`）：狀態轉移成對寫 `archived_by`／`deleted_by`；update／set_admin_role 以 log 記 `actor → target`（不加 `*_by` 欄，承 model §2.4）。沿用既有 `archive`／`delete` 的 `actor_principal_id: int | None = None`（系統呼叫時傳 `None`，如 bootstrap 腳本）。
 
 ---
 
@@ -67,13 +67,13 @@
 async def create(
     self, username: str, name: str, password: str,
     admin_role: AdminRole = AdminRole.VIEWER,
-    is_protected: bool = False,          # 【本組新增】seed 建 root 時傳 True
+    is_protected: bool = False,          # 【本組新增】可選 DB 硬化，管理 API 一律傳 False
 ) -> Admin
 ```
 
 - 沿用既有正規化／格式驗證／查重／argon2（admin-account-refinement §5.3）。
-- 落地 `is_protected`（預設 `False`）。**管理 API 一律傳 `False`**（不開放建立受保護 admin）；**seed 傳 `True`**（建立 root，§3.7）。
-- **`CHECK(protected ⟹ super_admin)`**（model §2.3）：若 `is_protected=True` 但 `admin_role != SUPER_ADMIN` → `IntegrityError`（seed 建 root 恆給 `SUPER_ADMIN`，不觸發）。
+- 落地 `is_protected`（預設 `False`）。**管理 API 一律傳 `False`**（不開放建立受保護 admin）；`is_protected=True` 保留為可選 DB 硬化機制，預設無列被標 protected（≥1 active super_admin 不變式由 SSM 初始 admin 保證，§3.7）。
+- **`CHECK(protected ⟹ super_admin)`**（model §2.3）：若 `is_protected=True` 但 `admin_role != SUPER_ADMIN` → `IntegrityError`。
 
 ### 3.2 `update`（更新顯示名稱）
 
@@ -135,7 +135,7 @@ async def set_admin_role(
 > **自我降級（foot-gun，刻意允許）**：自我提權被守衛擋，但**自我降級不擋**——非受保護 super_admin 可把自己降為 editor／viewer 而失去管理能力。因 protected root 仍能把他救回、系統不會鎖死，故接受此**可恢復**的 foot-gun（前端可對「降自己」加二次確認）。受保護 root 則因受保護守衛＋CHECK 無法自我降級。
 
 **M3：守衛適用範圍（actor 為 None 時）**：
-- **受保護守衛** 與 **super_admin-須先降級守衛**：**恆適用**（含 seed／script；`actor=None` 也不能刪掉受保護 root 或直接刪 super_admin）。
+- **受保護守衛** 與 **super_admin-須先降級守衛**：**恆適用**（`actor=None` 也不能刪掉受保護 admin 或直接刪 super_admin）。
 - **禁對自己／禁自我提權**：僅在**有 actor**（`actor==target` 可比對）時適用；`actor=None`（script）→ 不適用。
 
 **與 idempotency 的順序**（承 admin-account-refinement 既有 `archive`/`unarchive`/`restore` 的 idempotent）：**先判「是否已在目標態（idempotent 回）」→ 再判守衛 → 再執行轉移**。例：對已封存的 editor 再 `archive` → idempotent 成功，不必再過守衛。

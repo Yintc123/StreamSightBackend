@@ -376,7 +376,7 @@ Refresh（角色無關；owner=principal）：
 - **角色不符回 403**（已認證但越權），與 401（未認證）區分。
 - **refresh 不可提權**：新 access token 的 role 來自 principal（DB），非用戶可控。
 - **admin 不可公開註冊**；密碼 argon2id；沿用統一模糊錯誤訊息、`mask_email` log、pepper 雜湊 refresh token。
-- **admin 登入暴力破解防護（已知缺口）**：admin 是高價值目標，但本規格目前**僅靠「統一模糊錯誤訊息」**防列舉，**未含速率限制 / 帳號鎖定**。最佳實踐應對 `/admin/auth/login` 加上失敗次數限制（可複用既有 Redis：key 以 `mask_email` 或來源 IP 計數，超閾值暫時鎖定）。**本規格範圍暫不實作**，但明列為已知缺口，建議緊接一支後續規格處理；上線前至少於基礎設施層（反向代理 / WAF）對該端點限流。
+- **admin 登入暴力破解防護（暫不考慮）**：admin 是高價值目標，但本規格目前**僅靠「統一模糊錯誤訊息」**防列舉，**未含速率限制 / 帳號鎖定**。最佳實踐可對 `/admin/auth/login` 加上 Redis 計數限流；**本階段暫不實作**，由基礎設施層（反向代理 / WAF）對該端點限流即可。
 - **無狀態 access token 撤銷窗口（已接受的取捨）**：access token 是無狀態 JWT，`logout` / `logout-all` **只撤 refresh token**；已簽發的 access token 會**存活到 `exp`**（全域 30 分，admin 亦同——見 §10 決定維持）。意即帳號停用 / 登出後，最多仍有 ≤30 分的 access 有效窗口。這是 stateless JWT 的固有性質、且與現行 user 行為一致，**本規格有意識保留**；若未來需要對 admin 即時撤銷，選項為（a）縮短 admin TTL（per-role TTL）或（b）為 admin 導入 access-token denylist（Redis），屆時另議。
 
 > **✅ 部署過渡（`sub` 語意變更）——已由「保留 id」化解，不需輪替 secret、不需重新登入**：
@@ -484,14 +484,14 @@ Refresh（角色無關；owner=principal）：
 - ✅ **`principals.role` 加 `CHECK(role IN (0,1))`**：父表 role 值域硬化，杜絕無對應 child 型別的 role，對齊 D9 integrity-first（見 §3.2/§3.5/§8.2）。
 - ✅ **`extract_role` fail-safe**：缺 claim **或**未知值都退回最低權限 `Role.USER`（避免 `Role(2)` → 500），對齊 D6/D8（見 §5.1）。
 - ✅ **access token TTL 維持全域 30 分（admin 不另縮短）**：有意識保留；殘留 gap＝`logout`/`logout-all` 只撤 refresh，live access token 存活到 exp 為止（≤30 分無法即時撤銷）。屬已接受的取捨；未來若 admin 面擴大再議 per-role TTL（見 §7 安全考量、§11）。
-- ✅ 範圍＝角色基礎 + Admin 認證；不含 CMS 業務端點與 admin 管理 API。**admin 登入暴力破解防護（rate-limit/lockout）列為已知缺口，另立後續規格**（見 §7、§11）。
+- ✅ 範圍＝角色基礎 + Admin 認證；不含 CMS 業務端點與 admin 管理 API。**admin 登入暴力破解防護（rate-limit/lockout）暫不考慮**（見 §7）。
 
 ## 11. 待確認事項（Open Questions）
 
 1. admin 的 refresh / logout 是否要另開 `/admin/auth/refresh`、`/admin/auth/logout` 鏡像端點（CMS 表面更分離），或沿用角色無關的 `/auth/*`？（暫定：沿用 `/auth/*`。）
 2. seed script 放置位置與入口（`scripts/` vs `app/scripts/`；是否提供 uv script / Makefile 入口）。
 3. ~~未來 RBAC：role 目前單一整數放 principals，若要 permission/scope 需否 `permissions` 表？~~ **已由 [`rbac.md`](./rbac.md) 接手**：型別內權限採**方案 A（等級 enum）**——`AdminRole`（SUPER_ADMIN/EDITOR/VIEWER）、`UserTier`，JWT 加 `grade` claim；權限層與 `principals.role`（型別判別子）分離。未來需細粒度 permission 再升方案 B。
-4. admin 登入的 **rate-limit / 帳號鎖定**（複用 Redis）——本規格列為已知缺口，緊接一支後續規格；在此之前上線需於基礎設施層對 `/admin/auth/login` 限流（見 §7）。
+4. ~~admin 登入的 **rate-limit / 帳號鎖定**~~ **暫不考慮**：由基礎設施層限流即可（見 §7）。
 5. ~~**principals supertype 的擴充假設是否成立**~~ **已定案：採 supertype**。專案路線圖已明確預期**未來會有第三種 principal-owned 身分**（partner / service account 等），故 D1 的擴充假設**成立並被接受為前提**——supertype（含 D9 複合 FK、role 三份冗餘）是正確的超前部署，而非為兩種身分過度設計。較輕的「兩個 nullable FK + CHECK」方案在「確定會擴充」前提下需反覆改結構，故不採（見決策 D1、D9）。
 
 > ✅ 原 Open Q「是否加複合 FK 硬化」已定案：**採用**（見 §10、決策 D9）。

@@ -227,7 +227,7 @@ class AdminListResponse(BaseModel):
 ## 11. 待確認事項（Open Questions）
 
 1. **列表分頁**預設 50 / 上限 200（本文採）；是否需 cursor 分頁（admin 量少，offset 應足夠）。
-2. **登入 rate-limit / lockout**：`/admin/auth/login`、`/admin/me/password` 是否加 Redis 限流——承既有缺口，另議。
+2. ~~**登入 rate-limit / lockout**~~ **暫不考慮**：由基礎設施層（反向代理 / WAF）對 `/admin/auth/login` 限流即可。
 3. **降權即時性**：若要求降權當下前端即時失效，改「降權亦撤 token」（見 [`admin-management-service.md`](./admin-management-service.md) §10.2）。
 4. **transfer-ownership 端點**：本組不提供（model §2.2）。
 5. **重設他人密碼端點**：**目前不規劃**（承 service §3.3／§10 Q5）；忘記密碼復原走「軟刪除後重建」。若痛點浮現再議（含 step-up）。

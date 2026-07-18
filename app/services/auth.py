@@ -169,14 +169,17 @@ class AuthService:
             UnauthorizedError: email 不存在、無 password identity、或密碼錯 (統一訊息)
         """
         user: User | None = await self.user_service.repo.get_by_email(payload.email)
-        if user is None:
-            raise UnauthorizedError("Invalid email or password")
+        identity: Identity | None = None
+        if user is not None:
+            identity = await self.identity_repo.get_by_user_and_provider(user.id, PASSWORD_PROVIDER)
 
-        identity: Identity | None = await self.identity_repo.get_by_user_and_provider(
-            user.id, PASSWORD_PROVIDER
+        # 常數時間：無論帳號/identity 是否存在都跑一次 argon2（None → 對 dummy hash），
+        # 拉平時序防 email 列舉側通道（與 admin_login 一致）。
+        password_ok = await verify_password_or_dummy(
+            identity.credential if identity is not None else None,
+            payload.password,
         )
-        # 統一錯誤訊息:防 user enumeration (無 password identity 也回同一個)
-        if identity is None or not await verify_password(payload.password, identity.credential):
+        if user is None or identity is None or not password_ok:
             raise UnauthorizedError("Invalid email or password")
 
         # 停用帳號不發 token（與 admin_login 語意一致；沿用統一模糊訊息，見 §5.4）

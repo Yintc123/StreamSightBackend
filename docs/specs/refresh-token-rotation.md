@@ -186,6 +186,7 @@ refresh_token_reuse_grace_seconds: int = Field(
 > **⚠️ bulk statement 必須設 `synchronize_session=False`**：以上四個都是 `update()` / `delete()` bulk statement。`refresh` 流程會「在同一 session 內先讀出 `rt` ORM 物件，再對它 bulk UPDATE（`consume`）」，若不設 `synchronize_session=False`，SQLAlchemy 會試圖同步 session 的 identity map、可能噴 warning 或留下 stale 物件。全部 bulk 語句一律帶 `.execution_options(synchronize_session=False)`（或在 `update()/delete()` 指定）。`rowcount` 取自 `CursorResult`，比對 `BaseRepository.delete_by_id` 的寫法。
 >
 > **⚠️ `delete_expired` 與自參考 FK**：`replaced_by_id` 是自參考 FK（`ondelete="SET NULL"`）。當同一輪替鏈的 OLD→NEW **都過期**時，單一 `DELETE ... WHERE expires_at <= :before` 會一次刪掉互相參考的兩列（conftest 有開 `PRAGMA foreign_keys=ON`）。此行為需被測試明確覆蓋（見 8.2），確保不報 FK 違規。
+> **MariaDB InnoDB 補充**：InnoDB 的外鍵延遲評估（deferred constraint checking）行為與 SQLite 不同：InnoDB 在每列刪除後**立即**評估 FK；但 `SET NULL` 動作意指「子端 FK 欄位設 NULL、不刪子列」，因此 `DELETE` 先刪的那列若另一列尚存且 `replaced_by_id` 指向它，FK 評估通過（`SET NULL` 生效）；待第二列刪除時 `replaced_by_id` 已為 `NULL`，不觸發衝突。在 ORM 層以 `ON DELETE SET NULL` 聲明即可，無需手動調整刪除順序。此行為需真實 MariaDB 環境（`uv run alembic upgrade head` 後跑整合冒煙測試）驗證。
 
 需在 `app/repositories/__init__.py` 匯出 `RefreshTokenRepository`。
 

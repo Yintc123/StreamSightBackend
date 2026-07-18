@@ -17,7 +17,7 @@
 `jwt-role-and-admin.md` 引入的 `principals.role`（0=user / 1=admin）是**型別判別子**（不可變、決定走哪張 child 表），**不是權限**。本規格在型別**之內**再加一層「權限等級」：
 
 - **Admin 側**：CMS 管理者分三級 `SUPER_ADMIN / EDITOR / VIEWER`（權限高→低的階梯）。
-- **User 側**：一般使用者分級 `FREE / PREMIUM`（示範值；實際等級待確認，見 §11）。
+- **User 側**：一般使用者分級 `FREE / PREMIUM`（定案，低→高有序階梯）。升降等級流程（計費/訂閱）暫不考慮，由商業層另議。
 
 採**方案 A（等級 enum）**——每種身分一個獨立的等級 enum，DB 欄位硬化、以有序階梯做授權；**不引入** permissions/roles 關聯表（那是方案 B，另待需求成熟再議，見決策 R1）。
 
@@ -319,7 +319,7 @@ def require_min_tier(minimum: UserTier):
 ## 10. 已定案決策
 
 - ✅ 方案 A（等級 enum），非方案 B（permissions 表）；權限層與型別判別子分離（見 R1/R2）。
-- ✅ `AdminRole = SUPER_ADMIN / EDITOR / VIEWER`（有序階梯）；`UserTier = FREE / PREMIUM`（示範，待確認）。
+- ✅ `AdminRole = SUPER_ADMIN / EDITOR / VIEWER`（有序階梯）；`UserTier = FREE / PREMIUM`（定案，有序階梯；升降流程另議）。
 - ✅ **admin 側 enum/欄/預設/seed 由 admin-account-refinement（next）交付；本規格（next+1）疊授權面（rank/grade/require_min）＋ user 側全套**。
 - ✅ JWT 加 `grade` claim（`StrEnum` 字串，避開 `role` 名）；後端授權讀 child 現值、claim 僅 UX。
 - ✅ JWT 加 **`sid` claim（§4.1，= refresh `family_id`）**：供 WebSocket 單一 logout 精準斷線（websocket §2.5）。optional、非機密、非授權邊界，與 `grade` 同一擴充模式；`login`/`admin_login`/`register`/`refresh` 帶入當次 session 的 `family_id`。**WS 模組前置依賴**（websocket §8 里程碑 0）。
@@ -328,7 +328,7 @@ def require_min_tier(minimum: UserTier):
 
 ## 11. 待確認事項（Open Questions）
 
-1. **`UserTier` 的實際等級**：`FREE / PREMIUM` 為示範；真實分級（是否有 trial / enterprise…）需商業面確認後定案。
-2. `user_tier` 是否為「有序階梯」？若不是嚴格階梯（例如不同方案有互不包含的功能），user 側應直接走方案 B（feature/permission 集合），admin 側維持階梯。
-3. 升降權的**管理 API**（誰能改誰的等級、稽核）——另立 admin 管理規格；本規格只提供 service 能力與授權機制。
-4. 是否要把 `grade` 也納入 `/admin/auth/login` 以外的稽核日誌（admin 等級變更事件）。
+1. ~~**`UserTier` 的實際等級**~~ **已定案**：`FREE / PREMIUM` 為有序階梯，升降流程（計費/訂閱）暫不考慮，由商業層另議。
+2. ~~`user_tier` 是否為「有序階梯」？~~ **已定案**：維持有序階梯（`FREE < PREMIUM`）；若未來需要互不包含的功能集，再升方案 B（permission 集合）。
+3. 升降權的**管理 API**（誰能改誰的等級、稽核）——**暫不考慮**；本規格只提供 service 能力（`set_tier`）與授權機制（`require_min_tier`）。
+4. 是否要把 `grade` 也納入 `/admin/auth/login` 以外的稽核日誌（admin 等級變更事件）——**暫不考慮**。

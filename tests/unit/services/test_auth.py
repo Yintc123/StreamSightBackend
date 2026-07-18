@@ -202,6 +202,26 @@ async def test_login_with_nonexistent_email_raises_unauthorized(db_session: Asyn
     assert exc.value.message == "Invalid email or password"
 
 
+async def test_login_nonexistent_email_still_calls_dummy_verify(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """email 不存在時，仍呼叫 verify_password_or_dummy（常數時間防 email 列舉時序側通道）。"""
+    calls: list[str | None] = []
+
+    async def _fake_verify(stored_hash: str | None, plain: str) -> bool:
+        calls.append(stored_hash)
+        return False
+
+    monkeypatch.setattr("app.services.auth.verify_password_or_dummy", _fake_verify)
+
+    auth = AuthService(db_session)
+    with pytest.raises(UnauthorizedError):
+        await auth.login(LoginRequest(email="nobody@example.com", password="any"))
+
+    assert len(calls) == 1, "verify_password_or_dummy 應被呼叫一次（常數時間）"
+    assert calls[0] is None, "stored_hash 應為 None（對 dummy hash 跑）"
+
+
 async def test_get_user_from_valid_token_returns_user(db_session: AsyncSession) -> None:
     auth: AuthService = AuthService(db_session)
     token_resp = await auth.register(
