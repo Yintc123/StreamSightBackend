@@ -67,3 +67,10 @@ class BusinessRuleError(AppException):
 
     status_code: int = 422
     error_code: str = "business_rule_violation"
+
+
+class ServiceUnavailableError(AppException):
+    """下游服務（Redis / 外部 API）不可用（infra-monitoring.md §5）。"""
+
+    status_code: int = 503
+    error_code: str = "service_unavailable"

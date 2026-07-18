@@ -1,8 +1,15 @@
-"""Admin 監控 API：日誌查詢 / DB 狀態 / 歷史指標（monitoring.md §2.7/§4）。"""
+"""Admin 監控 API：日誌查詢 / DB 狀態 / 歷史指標（monitoring.md §2.7/§4）。
+
+Infra 指標查詢：GET /admin/monitoring/infra（infra-monitoring.md §5）。
+"""
+
+import json
+import time
 
 from fastapi import APIRouter, Depends, Query
+from redis.exceptions import RedisError
 
-from app.api.dependencies import get_current_admin, require_min_admin_role
+from app.api.dependencies import get_current_admin, get_redis, require_min_admin_role
 from app.api.dependencies.services import (
     get_db_stats_service,
     get_log_query_service,
@@ -10,7 +17,8 @@ from app.api.dependencies.services import (
 )
 from app.core.config import get_app_settings
 from app.core.enums import AdminRole
-from app.dtos.monitoring import DbSample, LogEntry, Page
+from app.core.exceptions import BadRequestError, ServiceUnavailableError
+from app.dtos.monitoring import DbSample, InfraHistoryResponse, InfraSnapshot, LogEntry, Page
 from app.models import Admin
 from app.services.monitoring.db_stats import DbStatsService
 from app.services.monitoring.logs import LogQueryService
@@ -73,3 +81,37 @@ async def get_metrics(
     settings = get_app_settings()
     clamped_limit = min(limit, settings.monitoring_query_max_limit)
     return await svc.range(name, since=since, until=until, cursor=cursor, limit=clamped_limit)
+
+
+@router.get("/infra", response_model=InfraHistoryResponse)
+async def get_infra(
+    start_ms: int | None = Query(None, ge=0, description="查詢起始時間（epoch ms，含）"),
+    end_ms: int | None = Query(None, ge=0, description="查詢結束時間（epoch ms，含）"),
+    _admin: Admin = Depends(get_current_admin),
+    redis=Depends(get_redis),
+) -> InfraHistoryResponse:
+    """OS / DB 基礎設施指標歷史查詢（infra-monitoring.md §5）。"""
+    settings = get_app_settings()
+    now_ms = int(time.time() * 1000)
+    default_ms = settings.monitoring_infra_default_query_hours * 3_600_000
+    retention_ms = settings.monitoring_infra_retention_hours * 3_600_000
+
+    resolved_end = end_ms if end_ms is not None else now_ms
+    resolved_start = start_ms if start_ms is not None else (resolved_end - default_ms)
+
+    if resolved_start >= resolved_end:
+        raise BadRequestError("start_ms must be less than end_ms")
+    if resolved_end - resolved_start > retention_ms:
+        raise BadRequestError(
+            f"Query range exceeds retention window ({settings.monitoring_infra_retention_hours}h)"
+        )
+
+    try:
+        raw_list = await redis.zrangebyscore(
+            settings.monitoring_infra_redis_key, resolved_start, resolved_end
+        )
+    except RedisError as exc:
+        raise ServiceUnavailableError("Redis unavailable") from exc
+
+    snapshots = [InfraSnapshot(**json.loads(item)) for item in raw_list]
+    return InfraHistoryResponse(snapshots=snapshots)

@@ -12,6 +12,8 @@ from .core.exceptions import setup_exception_handlers
 from .core.logging import setup_logging
 from .core.redis import close_redis, redis_client
 from .services.monitoring.db_probe import MariaDbStatsProbe, PoolStatsProbe
+from .services.monitoring.infra_probe import InfraProbe
+from .services.monitoring.infra_sampler import InfraSampler
 from .services.monitoring.log_handler import RedisStreamLogHandler, run_log_flusher
 from .services.monitoring.sampler import MonitoringSampler
 from .services.monitoring.store import RedisStreamStore
@@ -84,7 +86,32 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         await sampler.start()
         app.state.monitoring_sampler = sampler
 
+    # startup：Infra Monitoring（infra-monitoring.md §2.9）
+    infra_sampler: InfraSampler | None = None
+    if settings.monitoring_infra_enabled and settings.app_env != "test":
+        import httpx as _httpx
+
+        _http_client = _httpx.AsyncClient()
+        _infra_probe = InfraProbe(
+            settings.monitoring_infra_node_exporter_url,
+            settings.monitoring_infra_mysqld_exporter_url,
+            _http_client,
+        )
+        infra_sampler = InfraSampler(
+            probe=_infra_probe,
+            redis=redis_client,
+            redis_key=settings.monitoring_infra_redis_key,
+            interval_seconds=settings.monitoring_infra_interval_seconds,
+            retention_hours=settings.monitoring_infra_retention_hours,
+        )
+        await infra_sampler.start()
+        app.state.infra_sampler = infra_sampler
+
     yield
+
+    # shutdown：infra sampler
+    if infra_sampler:
+        await infra_sampler.stop()
 
     # shutdown：monitoring
     if sampler:

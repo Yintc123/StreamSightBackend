@@ -59,3 +59,52 @@ def test_page_with_items() -> None:
     page: Page[LogEntry] = Page(items=[entry], next_cursor="1730000000123-0")
     assert len(page.items) == 1
     assert page.next_cursor == "1730000000123-0"
+
+
+# ── InfraSnapshot + InfraHistoryResponse（infra-monitoring.md §3.1）──
+
+from app.dtos.monitoring import InfraHistoryResponse, InfraSnapshot  # noqa: E402
+
+
+def test_infra_snapshot_required_fields() -> None:
+    snap = InfraSnapshot(ts=1730000000000, memory_percent=61.2, disk_percent=45.8)
+    assert snap.ts == 1730000000000
+    assert snap.memory_percent == 61.2
+    assert snap.disk_percent == 45.8
+    assert snap.cpu_percent is None
+    assert snap.disk_read_iops is None
+    assert snap.disk_write_iops is None
+    assert snap.db_connections is None
+    assert snap.db_buffer_pool_hit_rate is None
+
+
+def test_infra_snapshot_all_fields() -> None:
+    snap = InfraSnapshot(
+        ts=1730000005000,
+        cpu_percent=23.4,
+        memory_percent=61.5,
+        disk_percent=45.8,
+        disk_read_iops=12.0,
+        disk_write_iops=8.5,
+        db_connections=6,
+        db_buffer_pool_hit_rate=98.5,
+    )
+    assert snap.cpu_percent == 23.4
+    assert snap.disk_read_iops == 12.0
+    assert snap.db_connections == 6
+
+
+def test_infra_history_response_empty() -> None:
+    resp = InfraHistoryResponse(snapshots=[])
+    assert resp.snapshots == []
+
+
+def test_infra_history_response_with_snapshots() -> None:
+    snaps = [
+        InfraSnapshot(ts=1000, memory_percent=50.0, disk_percent=30.0),
+        InfraSnapshot(ts=2000, memory_percent=55.0, disk_percent=31.0),
+    ]
+    resp = InfraHistoryResponse(snapshots=snaps)
+    assert len(resp.snapshots) == 2
+    assert resp.snapshots[0].ts == 1000
+    assert resp.snapshots[1].ts == 2000

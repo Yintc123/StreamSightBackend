@@ -225,6 +225,33 @@ class BaseAppSettings(BaseSettings):
         description="可選按時間修剪（MINID，秒）；0 = 只靠 MAXLEN",
     )
 
+    # ── Infra Monitoring（infra-monitoring.md §4.3）─────────────────────────
+    monitoring_infra_enabled: bool = Field(
+        default=True,
+        description="False 或 APP_ENV=test 時不啟動 InfraSampler",
+    )
+    monitoring_infra_node_exporter_url: str = Field(
+        default="http://node-exporter:9100",
+        description="node-exporter /metrics endpoint base URL",
+    )
+    monitoring_infra_mysqld_exporter_url: str = Field(
+        default="http://mysqld-exporter:9104",
+        description="mysqld-exporter /metrics endpoint base URL",
+    )
+    monitoring_infra_interval_seconds: int = Field(
+        default=5, ge=1, le=3600, description="採集週期（秒）"
+    )
+    monitoring_infra_retention_hours: int = Field(
+        default=24, ge=1, le=168, description="Redis Sorted Set 保留時長（小時）"
+    )
+    monitoring_infra_default_query_hours: int = Field(
+        default=1, ge=1, le=24, description="端點未帶參數時的預設查詢時間窗口（小時）"
+    )
+    monitoring_infra_redis_key: str = Field(
+        default="monitoring:infra:history",
+        description="Redis Sorted Set key",
+    )
+
     # @computed_field
     @property
     def database_url(self) -> str:

@@ -34,3 +34,22 @@ class Page[T](BaseModel):
 
     items: list[T]
     next_cursor: str | None = None
+
+
+class InfraSnapshot(BaseModel):
+    """單筆基礎設施快照，存入 Redis Sorted Set（infra-monitoring.md §3.1）。"""
+
+    ts: int
+    cpu_percent: float | None = None
+    memory_percent: float
+    disk_percent: float
+    disk_read_iops: float | None = None
+    disk_write_iops: float | None = None
+    db_connections: int | None = None
+    db_buffer_pool_hit_rate: float | None = None
+
+
+class InfraHistoryResponse(BaseModel):
+    """GET /admin/monitoring/infra 回應（由舊到新排列）。"""
+
+    snapshots: list[InfraSnapshot]

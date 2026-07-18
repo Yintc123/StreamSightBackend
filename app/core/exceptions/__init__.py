@@ -5,6 +5,7 @@ from .base import (
     ConflictError,
     ForbiddenError,
     NotFoundError,
+    ServiceUnavailableError,
     SystemErrorCode,
     UnauthorizedError,
 )
@@ -17,6 +18,7 @@ __all__ = [
     "ConflictError",
     "ForbiddenError",
     "NotFoundError",
+    "ServiceUnavailableError",
     "SystemErrorCode",
     "UnauthorizedError",
     "setup_exception_handlers",
