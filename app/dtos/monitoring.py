@@ -36,6 +36,12 @@ class Page[T](BaseModel):
     next_cursor: str | None = None
 
 
+class DbHistoryResponse(BaseModel):
+    """GET /admin/monitoring/db/history 回應（由舊到新排列，對齊 InfraHistoryResponse）。"""
+
+    snapshots: list[DbSample]
+
+
 class InfraSnapshot(BaseModel):
     """單筆基礎設施快照，存入 Redis Sorted Set（infra-monitoring.md §3.1）。"""
 

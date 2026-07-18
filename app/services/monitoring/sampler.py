@@ -7,6 +7,7 @@ best-effort：採樣/落地/推播失敗只 log warning，循環不中斷。
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import uuid
 from contextlib import suppress
@@ -35,6 +36,8 @@ class MonitoringSampler:
         sample_interval: float,
         lease_seconds: int,
         instance_id: str | None = None,
+        sorted_set_key: str | None = None,
+        retention_hours: int = 24,
     ) -> None:
         self._client = client
         self._probe = probe
@@ -45,6 +48,8 @@ class MonitoringSampler:
         self._interval = sample_interval
         self._lease = lease_seconds
         self._instance_id = instance_id or str(uuid.uuid4())
+        self._sorted_set_key = sorted_set_key
+        self._retention_ms = retention_hours * 3600 * 1000
         self._task: asyncio.Task | None = None
 
     async def _acquire_lease(self) -> bool:
@@ -76,6 +81,12 @@ class MonitoringSampler:
                 "monitor.db",
                 {"type": "event", "topic": "monitor.db", "ts": data.get("ts", 0), "data": data},
             )
+            if self._sorted_set_key:
+                ts_ms = data.get("ts", 0)
+                await self._client.zadd(self._sorted_set_key, {json.dumps(data): ts_ms})
+                await self._client.zremrangebyscore(
+                    self._sorted_set_key, 0, ts_ms - self._retention_ms
+                )
         except Exception:
             _logger.warning("MonitoringSampler tick failed", exc_info=True)
 

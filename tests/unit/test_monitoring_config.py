@@ -12,8 +12,10 @@ def test_monitoring_config_defaults() -> None:
     assert settings.monitoring_log_flush_interval_seconds == 1
     assert settings.monitoring_log_flush_batch_size == 100
     assert settings.monitoring_log_push_enabled is False
-    assert settings.monitoring_db_sample_interval_seconds == 15
+    assert settings.monitoring_db_sample_interval_seconds == 5
     assert settings.monitoring_db_stream_maxlen == 10000
+    assert settings.monitoring_db_retention_hours == 24
+    assert settings.monitoring_db_sorted_set_key == "monitoring:db:history"
     assert settings.monitoring_sampler_leader_lease_seconds == 30
     assert settings.monitoring_query_max_limit == 500
     assert settings.monitoring_retention_seconds == 604800

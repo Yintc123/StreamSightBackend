@@ -1,6 +1,6 @@
 """monitoring DTO 驗證（monitoring.md §3）。"""
 
-from app.dtos.monitoring import DbSample, LogEntry, Page
+from app.dtos.monitoring import DbHistoryResponse, DbSample, LogEntry, Page
 
 
 def test_log_entry_required_fields() -> None:
@@ -92,6 +92,32 @@ def test_infra_snapshot_all_fields() -> None:
     assert snap.cpu_percent == 23.4
     assert snap.disk_read_iops == 12.0
     assert snap.db_connections == 6
+
+
+def test_db_history_response_empty() -> None:
+    resp = DbHistoryResponse(snapshots=[])
+    assert resp.snapshots == []
+
+
+def test_db_history_response_with_snapshots() -> None:
+    snaps = [
+        DbSample(
+            ts=1000,
+            pool={"size": 5, "checked_out": 1},
+            connections={"connected": 2, "running": 1, "idle": 1},
+            backend="mariadb",
+        ),
+        DbSample(
+            ts=2000,
+            pool={"size": 5, "checked_out": 2},
+            connections={"connected": 3, "running": 2, "idle": 1},
+            backend="mariadb",
+        ),
+    ]
+    resp = DbHistoryResponse(snapshots=snaps)
+    assert len(resp.snapshots) == 2
+    assert resp.snapshots[0].ts == 1000
+    assert resp.snapshots[1].ts == 2000
 
 
 def test_infra_history_response_empty() -> None:

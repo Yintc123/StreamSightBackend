@@ -18,7 +18,14 @@ from app.api.dependencies.services import (
 from app.core.config import get_app_settings
 from app.core.enums import AdminRole
 from app.core.exceptions import BadRequestError, ServiceUnavailableError
-from app.dtos.monitoring import DbSample, InfraHistoryResponse, InfraSnapshot, LogEntry, Page
+from app.dtos.monitoring import (
+    DbHistoryResponse,
+    DbSample,
+    InfraHistoryResponse,
+    InfraSnapshot,
+    LogEntry,
+    Page,
+)
 from app.models import Admin
 from app.services.monitoring.db_stats import DbStatsService
 from app.services.monitoring.logs import LogQueryService
@@ -81,6 +88,40 @@ async def get_metrics(
     settings = get_app_settings()
     clamped_limit = min(limit, settings.monitoring_query_max_limit)
     return await svc.range(name, since=since, until=until, cursor=cursor, limit=clamped_limit)
+
+
+@router.get("/db/history", response_model=DbHistoryResponse)
+async def get_db_history(
+    start_ms: int | None = Query(None, ge=0, description="查詢起始時間（epoch ms，含）"),
+    end_ms: int | None = Query(None, ge=0, description="查詢結束時間（epoch ms，含）"),
+    _admin: Admin = Depends(get_current_admin),
+    redis=Depends(get_redis),
+) -> DbHistoryResponse:
+    """DB 狀態指標歷史查詢，股價式折線圖（ZADD Sorted Set，對齊 /infra 語意）。"""
+    settings = get_app_settings()
+    now_ms = int(time.time() * 1000)
+    default_ms = settings.monitoring_infra_default_query_hours * 3_600_000
+    retention_ms = settings.monitoring_db_retention_hours * 3_600_000
+
+    resolved_end = end_ms if end_ms is not None else now_ms
+    resolved_start = start_ms if start_ms is not None else (resolved_end - default_ms)
+
+    if resolved_start >= resolved_end:
+        raise BadRequestError("start_ms must be less than end_ms")
+    if resolved_end - resolved_start > retention_ms:
+        raise BadRequestError(
+            f"Query range exceeds retention window ({settings.monitoring_db_retention_hours}h)"
+        )
+
+    try:
+        raw_list = await redis.zrangebyscore(
+            settings.monitoring_db_sorted_set_key, resolved_start, resolved_end
+        )
+    except RedisError as exc:
+        raise ServiceUnavailableError("Redis unavailable") from exc
+
+    snapshots = [DbSample(**json.loads(item)) for item in raw_list]
+    return DbHistoryResponse(snapshots=snapshots)
 
 
 @router.get("/infra", response_model=InfraHistoryResponse)

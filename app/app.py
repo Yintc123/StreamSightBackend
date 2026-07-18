@@ -82,6 +82,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
             maxlen=settings.monitoring_db_stream_maxlen,
             sample_interval=float(settings.monitoring_db_sample_interval_seconds),
             lease_seconds=settings.monitoring_sampler_leader_lease_seconds,
+            sorted_set_key=settings.monitoring_db_sorted_set_key,
+            retention_hours=settings.monitoring_db_retention_hours,
         )
         await sampler.start()
         app.state.monitoring_sampler = sampler

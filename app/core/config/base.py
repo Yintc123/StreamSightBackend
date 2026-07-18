@@ -206,10 +206,17 @@ class BaseAppSettings(BaseSettings):
         description="是否對 monitor.logs WS topic 即時 tail 推播（高頻，預設關）",
     )
     monitoring_db_sample_interval_seconds: int = Field(
-        default=15, ge=1, le=3600, description="DB 狀態採樣週期（秒）"
+        default=5, ge=1, le=3600, description="DB 狀態採樣週期（秒）"
     )
     monitoring_db_stream_maxlen: int = Field(
         default=10000, ge=100, description="monitor:stream:db 近似上限（MAXLEN ~）"
+    )
+    monitoring_db_retention_hours: int = Field(
+        default=24, ge=1, le=168, description="monitor:db:history Sorted Set 保留時長（小時）"
+    )
+    monitoring_db_sorted_set_key: str = Field(
+        default="monitoring:db:history",
+        description="DB 指標 Sorted Set key（股價式折線圖查詢用）",
     )
     monitoring_sampler_leader_lease_seconds: int = Field(
         default=30,
