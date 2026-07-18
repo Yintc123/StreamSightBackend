@@ -199,9 +199,9 @@ refresh_token_reuse_grace_seconds: int = Field(
 
 ### 5.4 API schema `app/api/routers/auth/schemas.py`
 
-- `TokenResponse` 繼承 `TokenPayload`（自動帶 `access_token` / `token_type` / `refresh_token`），**在此新增 API 專屬欄位 `expires_in: int`**（access token 剩餘有效秒數，OAuth2 慣例；值取 `settings.jwt_access_token_expire_seconds`）。這正是既有 schemas.py 註解所指「API-specific 欄位（例如 expires_in）」的落點，維持 domain `TokenPayload` 乾淨。
+- `TokenResponse` 繼承 `TokenPayload`（自動帶 `access_token` / `token_type` / `refresh_token`），**在此新增 API 專屬欄位 `expires_in: int`**（access token 剩餘有效秒數，OAuth2 慣例）。這正是既有 schemas.py 註解所指「API-specific 欄位（例如 expires_in）」的落點，維持 domain `TokenPayload` 乾淨。
 - `RefreshRequest` 直接複用 `app/dtos` 的 DTO 當 request body，router import 即可。
-- `expires_in` 由 router 在建 `TokenResponse` 時填入（見 5.6），service 層不需知道它。
+- `expires_in` 由 router 在建 `TokenResponse` 時填入（見 5.6）：優先取 `TokenPayload.access_token_expire_seconds`（service 可覆寫 TTL，例如初始 admin 為 3 小時），否則 fallback `settings.jwt_access_token_expire_seconds`。
 
 ### 5.5 Service `app/services/auth.py`
 
