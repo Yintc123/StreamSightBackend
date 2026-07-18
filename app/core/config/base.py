@@ -23,7 +23,7 @@ class BaseAppSettings(BaseSettings):
     # database - connection fields
     db_dialect: str = Field(
         default="mysql+asyncmy",
-        description="SQLAlchemy dialect+driver (mysql+asyncmy / postgresql+asyncpg / sqlite+aiosqlite)",
+        description="SQLAlchemy dialect+driver (mysql+asyncmy / sqlite+aiosqlite)",
     )
     db_host: str = Field(default="localhost", description="DB host (ignored for SQLite)")
     db_port: int = Field(default=3306, ge=1, le=65535, description="DB port (ignored for SQLite)")

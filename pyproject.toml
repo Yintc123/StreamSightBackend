@@ -9,7 +9,6 @@ dependencies = [
     "alembic>=1.18.5",
     "argon2-cffi>=25.1.0",
     "asyncmy>=0.2.11",
-    "asyncpg>=0.31.0",
     "cryptography>=49.0.0",
     "fastapi>=0.138.0",
     "pydantic-settings>=2.14.2",
