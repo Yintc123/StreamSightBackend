@@ -1,15 +1,15 @@
-from .admin import monitoring_router as admin_monitoring_router
 from .admin import router as admin_router
-from .admin import ws_router as admin_ws_router
 from .auth import router as auth_router
 from .health import router as health_router
+from .monitoring import router as monitoring_router
 from .users import router as users_router
+from .ws import router as ws_router
 
 __all__ = [
-    "admin_monitoring_router",
     "admin_router",
-    "admin_ws_router",
-    "health_router",
-    "users_router",
     "auth_router",
+    "health_router",
+    "monitoring_router",
+    "users_router",
+    "ws_router",
 ]
