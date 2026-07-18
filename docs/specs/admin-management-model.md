@@ -29,7 +29,7 @@
 | 操作 | Service | Endpoint |
 |---|---|---|
 | 登入（既有） | `admin_login` | `POST /admin/auth/login` |
-| 列表／明細 | `list_admins`／`get` | `GET /admin/admins`／`GET /admin/admins/{id}` |
+| 列表／明細 | `list_admins`／`get_row` | `GET /admin/admins`／`GET /admin/admins/{id}` |
 | 新增 | `create` | `POST /admin/admins` |
 | 更新名稱 | `update` | `PATCH /admin/admins/{id}` |
 | 升降權 | `set_admin_role` | `PUT /admin/admins/{id}/role` |
@@ -192,6 +192,9 @@ def is_active(self) -> bool:
 - `list_admins(*, status: AdminStatusFilter, limit: int, offset: int) -> Sequence[Row]`：依 §2.7 謂詞（`ACTIVE`/`ARCHIVED`/`DELETED`/`ALL`）查詢，`ORDER BY id` 穩定分頁。
   - **稽核者名稱解析（L1，best practice）**：對 `archived_by` / `deleted_by`（principal_id）以**兩次 `LEFT JOIN admins`（`admins.principal_id = archived_by` / `= deleted_by`）**帶出操作者 `username`，供 API 的 `AdminSummary` 直接顯示「誰封存/刪除的」，免前端二次查詢。回傳含 `admin` 與解析出的 `archived_by_username` / `deleted_by_username`（`str | None`）。裸 `archived_by`/`deleted_by`（id）保留作穩定參照。（操作者恆為 admin principal；找不到對應 admin 列時為 `None`。）
 - `count_admins(*, status: AdminStatusFilter) -> int`：同謂詞計數（供分頁 total）。
+- `get_list_row(admin_id: int) -> AdminListRow | None`：**單列版 `list_admins`**——同一組兩次 `LEFT JOIN admins`、只多 `WHERE Admin.id = admin_id`。理由：`GET /admin/admins/{id}` 與四個生命週期端點都回 `AdminSummary`（含 `archived_by_username` / `deleted_by_username`），而這兩欄**不在 `Admin` model 上**、需 JOIN 解析；若單一 admin 路徑只用 `get()`（回裸 `Admin`）則 username 欄無從填。此方法讓**列表與單一 admin 共用同一套 username 解析**（DRY、單一查詢）。service 以 `get_row`（§3.9）包裝、施加軟刪除規則。
+
+> `AdminListRow`（`@dataclass`）＝ `list_admins` / `get_list_row` 的一列：`admin` 本體 ＋ `archived_by_username` / `deleted_by_username`（`str | None`）。裸 `archived_by`/`deleted_by`（id）仍在 `admin` 上作穩定參照。
 
 > **不需 `count_active_super_admins`**：Option B 的不變式由單列 protected 守衛保證，**無任何聚合計數或 `FOR UPDATE`**（這是相對前一版設計的關鍵簡化）。
 

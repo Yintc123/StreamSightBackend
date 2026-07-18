@@ -168,9 +168,18 @@ async def delete(self, admin_id: int, *, actor_principal_id: int | None = None) 
 ```python
 async def list_admins(
     self, *, status: AdminStatusFilter = AdminStatusFilter.ACTIVE, limit: int = 50, offset: int = 0,
-) -> tuple[list[Admin], int]
+) -> tuple[Sequence[AdminListRow], int]
 ```
 委派 `repo.list_admins` + `repo.count_admins`，回 `(rows, total)`。純讀取、無 commit。
+
+> **回傳型別＝`AdminListRow`（非裸 `Admin`）**：對齊 model §4 的 L1 稽核者名稱解析——`rows` 每列帶 `admin` 本體 ＋ 解析出的 `archived_by_username` / `deleted_by_username`，供 api `AdminSummary` 直接顯示「誰封存/刪除」（免前端二次查詢）。若回裸 `list[Admin]` 則 `AdminSummary` 的 username 欄無從填，故型別必須是 `AdminListRow`。
+
+### 3.9 `get_row`（明細／生命週期回身的單列 `AdminListRow`）
+
+```python
+async def get_row(self, admin_id: int, *, include_deleted: bool = False) -> AdminListRow
+```
+`GET /admin/admins/{id}` 與四個生命週期端點都回 `AdminSummary`，而 `AdminSummary` 含 `archived_by_username` / `deleted_by_username`——這些**不在 `Admin` model 上**、需 JOIN 解析。故單一 admin 路徑**不能只用 `get()`（回裸 `Admin`）**，改委派 `repo.get_list_row(admin_id)`（與 `list_admins` **同一組 LEFT JOIN**、只多 `WHERE id=?`），回帶 username 的單列 `AdminListRow`。軟刪除規則同 `get`（未帶 `include_deleted` 時軟刪 → `NotFoundError`）。這讓**列表與單一 admin 走同一套 username 解析**（DRY、單一查詢，優於每列多打 `get_by_principal_id`）。
 
 ---
 

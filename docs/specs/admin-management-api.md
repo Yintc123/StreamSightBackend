@@ -134,13 +134,13 @@ class AdminListResponse(BaseModel):
 - `POST /admin/me/password`：`change_password(current_admin.id, ...)` → **204**（token 已撤，需重登）；舊密碼錯 → **401**；新==舊 → **400**。
 - `GET /admin/admins`：`list_admins(status, limit, offset)` → **200** `AdminListResponse`。
 - `POST /admin/admins`：`create(..., is_protected=False)` → **201** `AdminResponse`；格式不符 → **400**；username 重複 → **409**。
-- `GET /admin/admins/{id}`：`get(include_deleted=True)` → **200** `AdminSummary`；不存在 → **404**。
+- `GET /admin/admins/{id}`：`get_row(include_deleted=True)` → **200** `AdminSummary`；不存在 → **404**。（**用 `get_row` 非 `get`**：`AdminSummary` 含 `archived_by_username` / `deleted_by_username`，需 JOIN 解析，裸 `Admin` 產不出——見 [`admin-management-service.md`](./admin-management-service.md) §3.9。）
 - `PATCH /admin/admins/{id}`：`update(id, name=..., actor=...)` → **200** `AdminResponse`；軟刪除者 → **404**。
 - `PUT /admin/admins/{id}/role`：`set_admin_role(id, admin_role=..., actor=...)` → **200** `AdminResponse`；降級受保護 root → **422**；自我提權 → **422**；軟刪除者 → **404**。
 - `POST /{id}/archive`｜`POST /{id}/unarchive`｜`POST /{id}/restore`｜`DELETE /{id}` → **200** `AdminSummary`（四個生命週期端點皆回更新後資源，含新狀態；archive/unarchive/restore idempotent）。
   - 對 super_admin（未降級）archive／delete → **422**；受保護 root archive／delete → **422**；對自己 archive／delete → **422**；不存在／已軟刪除（archive/unarchive/delete）→ **404**。
 
-> **四個生命週期端點統一回 `200 + AdminSummary`**（L2）：軟刪除是狀態轉移、資源仍在，回更新後資源比 204 語意更正確、前端也立即見到新狀態。
+> **四個生命週期端點統一回 `200 + AdminSummary`**（L2）：軟刪除是狀態轉移、資源仍在，回更新後資源比 204 語意更正確、前端也立即見到新狀態。轉移完成後以 `get_row(include_deleted=True)` 取帶 username 的單列（service §3.9）建 `AdminSummary`——`delete` 亦然（`delete` 本身回 `None`，回身另取 row）。
 
 ---
 

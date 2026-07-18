@@ -150,7 +150,7 @@ USER_TIER_RANK: dict[UserTier, int] = {
 
 ### 5.1 Service — 簽發時帶入 grade
 
-- `login` / `admin_login`：驗證後讀 child 的等級 → `create_access_token(principal_id, role, grade=<child 等級>)`。
+- `register` / `login` / `admin_login`：發 access token 時讀 child 的等級 → `create_access_token(principal_id, role, grade=<child 等級>)`。**`register` 亦帶 grade**——register 是 auto-login、同樣發 access token，新建 user 等級恆為最低 `free`。如此**所有簽發 access token 的路徑一致帶 grade**（不只登入），前端首屏零往返即可讀等級，語意一致。
 - `refresh`（角色無關）：**已因驗 `is_active` 而載入 child**（見 jwt-role §5.4）→ 順手讀**最新**等級重簽 `grade`。故每次 rotation 自動刷新 grade，陳舊窗口 ≤ 一個 access TTL（見決策 R5）。
 - **變更等級**：
   - `UserService.set_tier(user_id, tier)` / `AdminService.set_admin_role(admin_id, admin_role)`：寫 child 欄、commit。（升降權的**業務入口**與完整守衛由 [`admin-management-service.md`](./admin-management-service.md) §3.4 交付；本規格只提供 service 能力與授權機制。**命名採 `set_admin_role`**——改的是 `admins.admin_role` 權限等級，非型別判別子 `role`。）
