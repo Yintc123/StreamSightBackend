@@ -1,54 +1,59 @@
-"""Unit tests for app/core/enums：AdminRole／UserTier（權限等級 StrEnum）＋ rank 表。
+"""Unit tests for app/core/enums：AdminRole／UserTier 為 IntEnum（rank = value）。
 
-rbac §3.1/§8.1。
+enum-int.md：rank 即 enum 值 → 支援 SQL 層比 rank、刪除分離的 rank dict。
 """
 
-from app.core.enums import (
-    ADMIN_ROLE_RANK,
-    USER_TIER_RANK,
-    AdminRole,
-    AdminStatusFilter,
-    UserTier,
-)
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.enums import AdminRole, AdminStatusFilter, UserTier
+from app.models import Admin
+from app.services import AdminService
 
 
-def test_admin_role_string_values() -> None:
-    assert AdminRole.SUPER_ADMIN.value == "super_admin"
-    assert AdminRole.EDITOR.value == "editor"
-    assert AdminRole.VIEWER.value == "viewer"
+def test_admin_role_int_values_and_order() -> None:
+    # 間隙 5（供未來插值免重編號，enum-int.md）
+    assert AdminRole.VIEWER == 0
+    assert AdminRole.EDITOR == 5
+    assert AdminRole.SUPER_ADMIN == 10
+    # rank = value：直接比大小（取代舊 ADMIN_ROLE_RANK dict）
+    assert AdminRole.SUPER_ADMIN > AdminRole.EDITOR > AdminRole.VIEWER
 
 
-def test_admin_role_is_str_enum() -> None:
-    # StrEnum：成員即字串，可直接與字串比較（DB 存字串值）
-    assert AdminRole("viewer") is AdminRole.VIEWER
-    assert AdminRole.VIEWER == "viewer"
+def test_user_tier_int_values_and_order() -> None:
+    assert UserTier.FREE == 0
+    assert UserTier.PREMIUM == 5
+    assert UserTier.PREMIUM > UserTier.FREE
 
 
-def test_user_tier_string_values() -> None:
-    assert UserTier.FREE.value == "free"
-    assert UserTier.PREMIUM.value == "premium"
+async def test_sql_level_rank_comparison(db_session: AsyncSession) -> None:
+    """核心動機：DB 層 `WHERE admin_role >= EDITOR` 依 rank 篩選、`ORDER BY` 依權限序。
 
+    StrEnum 下字串比較會誤配（'viewer' >= 'editor' 為真）→ 此測試對舊實作為 RED。
+    """
+    svc = AdminService(db_session)
+    await svc.create(username="vwr", name="v", password="longpassword", admin_role=AdminRole.VIEWER)
+    await svc.create(username="edt", name="e", password="longpassword", admin_role=AdminRole.EDITOR)
+    await svc.create(
+        username="spr", name="s", password="longpassword", admin_role=AdminRole.SUPER_ADMIN
+    )
 
-def test_user_tier_is_str_enum() -> None:
-    assert UserTier("premium") is UserTier.PREMIUM
-    assert UserTier.FREE == "free"
-
-
-def test_admin_role_rank_is_ordered_ladder() -> None:
-    # 權限高→低：super_admin > editor > viewer（供 require_min_admin_role 比較）
-    assert ADMIN_ROLE_RANK[AdminRole.SUPER_ADMIN] > ADMIN_ROLE_RANK[AdminRole.EDITOR]
-    assert ADMIN_ROLE_RANK[AdminRole.EDITOR] > ADMIN_ROLE_RANK[AdminRole.VIEWER]
-    # 每個成員都要有 rank（避免遺漏）
-    assert set(ADMIN_ROLE_RANK.keys()) == set(AdminRole)
-
-
-def test_user_tier_rank_is_ordered_ladder() -> None:
-    assert USER_TIER_RANK[UserTier.PREMIUM] > USER_TIER_RANK[UserTier.FREE]
-    assert set(USER_TIER_RANK.keys()) == set(UserTier)
+    rows = (
+        (
+            await db_session.execute(
+                select(Admin.username)
+                .where(Admin.admin_role >= AdminRole.EDITOR)
+                .order_by(Admin.admin_role)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert list(rows) == ["edt", "spr"]  # editor(5) + super_admin(10)，依 rank 序
 
 
 def test_admin_status_filter_values() -> None:
-    # model §2.7/§4：列表狀態篩選（跨層共用）
+    # AdminStatusFilter 維持 StrEnum（非有序 rank、非落地排序需求）
     assert AdminStatusFilter.ACTIVE.value == "active"
     assert AdminStatusFilter.ARCHIVED.value == "archived"
     assert AdminStatusFilter.DELETED.value == "deleted"

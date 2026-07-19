@@ -15,8 +15,6 @@ from app.core.auth import (
     extract_sid,
 )
 from app.core.enums import (
-    ADMIN_ROLE_RANK,
-    USER_TIER_RANK,
     AdminRole,
     Role,
     UserTier,
@@ -100,7 +98,7 @@ def require_min_admin_role(minimum: AdminRole) -> Callable[..., Awaitable[Admin]
     """
 
     async def _dep(admin: Admin = Depends(get_current_admin)) -> Admin:
-        if ADMIN_ROLE_RANK[AdminRole(admin.admin_role)] < ADMIN_ROLE_RANK[minimum]:
+        if admin.admin_role < minimum:  # rank = value（IntEnum），直接比較
             raise ForbiddenError("insufficient admin role")
         return admin
 
@@ -114,7 +112,7 @@ def require_min_tier(minimum: UserTier) -> Callable[..., Awaitable[User]]:
     """
 
     async def _dep(user: User = Depends(get_current_user)) -> User:
-        if USER_TIER_RANK[UserTier(user.user_tier)] < USER_TIER_RANK[minimum]:
+        if user.user_tier < minimum:  # rank = value（IntEnum），直接比較
             raise ForbiddenError("tier required")
         return user
 
