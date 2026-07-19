@@ -150,19 +150,24 @@ records 為純 admin 功能（role=0 不可呼叫，§2.9），故**建立者恆
 
 ### 2.7 列表查詢（讀取路徑）最佳實踐：正規化 → 謂詞 → 計數 → 排序 → 分頁 → 解析
 
-列表同時受四個 UI 控制（**分類 / 關鍵字 / 排序 / 每頁筆數**），全部 **server-side**（不抓全表回前端過濾）。**分層職責**：service 做「輸入正規化與驗證」（fail-closed），repository 做「純資料查詢」，以乾淨參數交界。
+列表同時受五個 UI 控制（**分類 / 關鍵字 / 日期範圍 / 排序 / 每頁筆數**），全部 **server-side**（不抓全表回前端過濾）。**分層職責**：service 做「輸入正規化與驗證」（fail-closed），repository 做「純資料查詢」，以乾淨參數交界。
 
 **(1) 輸入正規化與驗證（service 層）**
-- **每頁筆數夾上限**：`size = min(max(size, 1), MAX_PAGE_SIZE)`（`MAX_PAGE_SIZE=100`）；`page = max(page, 1)`。**不信前端**——防 `size=10^9` 拖垮 DB／記憶體（§5）。
-  > **⚠️ 與 router 層 `Query` bounds 的分工須明確（避免行為分裂）**：既有 admin router 以 `Query(50, ge=1, le=200)` **在進 service 前即由 FastAPI 拒絕越界**（回 422）。本規格改採 **service 內靜默夾值**（clamp，不拒絕）以對齊前端「送什麼都給頁」的 UX 契約。**兩者擇一、不可並存**——若 router 仍加 `Query(le=...)`，越界會先被 FastAPI 422 掉、永遠進不到 service 的夾值邏輯。**本規格定調：router 端 `size`/`page` 不設 `le` 上界（僅 `ge=1` 防負數），夾上限交 service**（companion api 落實）。
+- **每頁筆數——兩層上限**：本 API 服務兩種使用情境，page size 上限不同：
+  - **管理列表**（`03-data-management` 頁）：`size = min(max(size, 1), LIST_MAX_PAGE_SIZE=100)`——防 `size=10^9` 拖垮 DB／記憶體，並對齊前端 selectbox `[20, 50, 100]`。
+  - **分析全量拉取**（`05-analytics` 頁）：`size = min(max(size, 1), ANALYTICS_MAX_PAGE_SIZE=5000)`——前端 pandas 聚合需一次取大批資料（`GET /records?from=...&to=...&size=5000`），但仍設上界防止失控請求。
+  > **由哪一層夾值的決策**：router 端 `size`/`page` 不設 `le` 上界（僅 `ge=1` 防負數），由 service 依呼叫情境（列表 or 分析）選用對應常數。此與既有 admin router 以 `Query(le=200)` 在入口拒絕的做法有差異：本規格改採 **service 內夾值**（避免兩套上界打架），**兩者不可並存**，companion api 落實時須明確選一。
 - **排序解析成 enum（唯一驗證點）**：把前端傳來的 `"field:dir"` 字串解析、驗證成 **`RecordSortField` enum + 方向**（`field ∈ RecordSortField` 否則 `RecordValidationError`；`dir ∈ {asc,desc}` 否則 422；空值套 `DEFAULT_SORT`）。**驗證只在此發生一次**——repo 收的是已型別化的 enum，不再 parse、不再拋 validation（§4）。**絕不**把使用者字串拼進 `ORDER BY`；欄名→ORM Column／JOIN 的映射屬查詢構造，留在 repo（比照 `AdminStatusFilter` 由 repo `_status_predicate` 翻 SQL 的既有形狀）。
 - **關鍵字跳脫 LIKE 萬用字元**：對 `%` `_` `\` 前綴加跳脫字元、配 `ESCAPE '\'`；否則使用者輸入 `50%`／`a_b` 會誤配。空字串視同無關鍵字。
 - **分類名 → id（篩選路徑允許 inactive）**：以 `get_by_name` 解析，**不檢查 `is_active`**——退場分類的舊資料仍要能被篩出（**與寫入路徑相反**，寫入要求 active，§2.4）。名稱完全不存在 → `RecordValidationError`（明確回饋，不靜默忽略打字錯）。
+- **日期範圍正規化**：`date_from`/`date_to` 為可選的**日期**（`date` 型別，前端傳 `YYYY-MM-DD`）。service 轉為 UTC-aware datetime 邊界後傳 repo：`date_from` → `datetime(date_from, 00:00:00, UTC)`；`date_to` → `datetime(date_to+1day, 00:00:00, UTC)`（含當天末、開區間右端）。兩者獨立可選：`None` 表示無界。
 
 **(2) 謂詞（count 與 list 共用同一建構器，避免條件漂移）**
 - `include_deleted=False` → `deleted_at IS NULL`（軟刪除預設隱藏；`is_active` 計算屬性不進 SQL，對齊 admin §2.7）。
 - `category_id` 非 None → `category_id = :category_id`。
 - `keyword` 非空 → `LOWER(title) LIKE :kw ESCAPE '\'`。
+- `date_from` 非 None → `created_at >= :date_from`（UTC-aware datetime）。
+- `date_to` 非 None → `created_at < :date_to`（`date_to` 已由 service 推進至隔日 00:00 UTC，開區間）。
 
 **(3) 計數**：以上謂詞（不含 order/limit）算 `COUNT(*)` → `Page.total`＝**篩選後、分頁前**筆數（前端據此算總頁數）。
 
@@ -231,10 +236,13 @@ records 為純 admin 功能（role=0 不可呼叫，§2.9），故**建立者恆
 |---|---|---|
 | `ix_records_category_id` | `category_id` | 分類篩選／join（§2.4） |
 | `ix_records_deleted_at` | `deleted_at` | 軟刪除謂詞（列表預設濾） |
+| `ix_records_created_at` | `created_at` | 日期範圍謂詞（§2.7-(2)；分析頁時間篩選） |
 
 > **不建 `created_by` 索引**：可見性全開（§2.9，列表不加 owner 謂詞），無「依建立者篩選」的查詢；`created_by` 顯示名解析走 `admins.principal_id`（admin 側已 unique index）的 JOIN，records 側無需再建索引。**規格內無讀取查詢可服務的索引不建**（純寫入放大成本，§5）。若日後 companion 引入「依建立者篩選/稽核清單」，再依實際查詢補 `ix_records_creator`。
 >
 > **關鍵字搜尋不建索引**：`LOWER(title) LIKE '%kw%'` 前綴不定，一般 B-tree 無效；demo 資料量小、可全表掃。若日後量大需全文檢索，另議（§9）。排序穩定性靠 `ORDER BY <field> <dir>, id <dir>`，`id` 為 PK 已有索引。
+>
+> **`ix_records_created_at`**：`05-analytics` 頁以 `created_at` 做時間範圍篩選（`>= date_from`、`< date_to`），B-tree 索引對範圍查詢有效。此索引同時加速管理列表的「依建立時間排序」（`ORDER BY created_at` 為 `SORTABLE` 之一）。
 
 ### 3.4 狀態機（資料層）
 
@@ -281,12 +289,12 @@ records 為純 admin 功能（role=0 不可呼叫，§2.9），故**建立者恆
 
 於 `app/repositories/record.py`（新檔，繼承 `BaseRepository`）提供（**無 DDL**）：
 
-- `list_records(*, category_id, keyword, sort_field: RecordSortField, sort_dir: SortDirection, include_deleted, limit, offset) -> Sequence[Record]`：
-  - 謂詞：`include_deleted=False` → `deleted_at IS NULL`；`category_id` 非 None → `category_id = :category_id`；`keyword` 非空 → `LOWER(title) LIKE :kw ESCAPE '\'`（`:kw` 已由 service 跳脫並包 `%…%`，§2.7-(1)——**repo 端勿漏 `ESCAPE '\'`**，否則 service 的跳脫失效）。
+- `list_records(*, category_id, keyword, date_from: datetime | None, date_to: datetime | None, sort_field: RecordSortField, sort_dir: SortDirection, include_deleted, limit, offset) -> Sequence[Record]`：
+  - 謂詞：`include_deleted=False` → `deleted_at IS NULL`；`category_id` 非 None → `category_id = :category_id`；`keyword` 非空 → `LOWER(title) LIKE :kw ESCAPE '\'`（`:kw` 已由 service 跳脫並包 `%…%`，§2.7-(1)——**repo 端勿漏 `ESCAPE '\'`**，否則 service 的跳脫失效）；`date_from` 非 None → `created_at >= :date_from`；`date_to` 非 None → `created_at < :date_to`（兩者皆為 UTC-aware datetime，由 service 正規化後傳入，§2.7-(1)）。
   - 排序（**收已驗證的 enum，不 parse、不拋 validation**）：以 module-level 映射把 `sort_field` 翻成 ORM Column（比照 `AdminRepository._status_predicate` 把 `AdminStatusFilter` 翻 SQL 的形狀，§2.7）；一般欄 `ORDER BY <col> <dir>, id <dir>`；**`sort_field is RecordSortField.CATEGORY` 特例**：`JOIN record_categories rc ON rc.id = records.category_id`，`ORDER BY rc.name <dir>, records.id <dir>`（依分類名而非 id 排序，§2.4／§2.7）。
   - 分頁：`LIMIT :size OFFSET (page-1)*size`（`size` 已由 service 夾在 `[1, MAX_PAGE_SIZE]`、`page≥1`，§2.7-(1)）。
   > **repo 只吃已正規化的乾淨參數**：size 夾上限、keyword 已跳脫（含 `ESCAPE '\'`）、**`sort` 已由 service 解析成 `RecordSortField` enum + 方向**（型別化、pyright 擋任意字串）、`category`（字串）已由 service 用 `get_by_name` 轉成 `category_id`——全在 service 完成（§2.7-(1)）。**驗證（含 `RecordValidationError`）不在 repo**：repo 收 enum 就不可能是非法欄名，故無需再驗。**篩選路徑的分類解析允許 inactive**（退場分類的舊資料仍可篩），僅寫入路徑要求 active。repo 純資料層、不碰字串語意。
-- `count_records(*, category_id, keyword, include_deleted) -> int`：**與 `list_records` 共用同一謂詞建構器**（避免條件漂移）算 `COUNT(*)`（供 `Page.total`＝篩選後、分頁前筆數）。
+- `count_records(*, category_id, keyword, date_from: datetime | None, date_to: datetime | None, include_deleted) -> int`：**與 `list_records` 共用同一謂詞建構器**（避免條件漂移）算 `COUNT(*)`（供 `Page.total`＝篩選後、分頁前筆數）。
 - `get_active(record_id) -> Record | None`：`WHERE id=:id AND deleted_at IS NULL`（供 get/update/delete 前置；`None` → service 拋 `RecordNotFoundError`）。
 - `get_active_row(record_id) -> RecordListRow | None`：同 `get_active` 謂詞 + 與 `list_records` **同一套 JOIN 解析**的單筆版——供 service 統一組單筆回應（create/update/get 皆走此，service §3.3）。與 list 共用同一 select 建構器（僅多 `WHERE id=:id`）。
 - **`RecordListRow`（`@dataclass(frozen=True)`，定義於本檔 `app/repositories/record.py`，比照 `AdminListRow` 之於 `admin.py`）**：`record: Record` + `category_name: str`（JOIN `record_categories.name`）+ `created_by_username: str`（JOIN `admins.username`，恆命中，§2.3）——list/get 的一列，解析結果一次帶出（免 N+1，§2.7-(6)）。
@@ -309,8 +317,8 @@ records 為純 admin 功能（role=0 不可呼叫，§2.9），故**建立者恆
 > **跨層詞彙與常數**（`app/core/enums.py`／`config`）：
 > - **`RecordSortField(StrEnum)`** — 可排序欄位的封閉白名單，值 `id/title/value/category/created_at` **對映前端 `SORTABLE`**（契約不變）。採 `StrEnum` 對齊既有 `AdminStatusFilter`/`AdminRole` 慣例——供 service 驗證（`RecordSortField(field_str)` 非法即 `ValueError`→`RecordValidationError`）、repo 型別化收參（pyright 擋任意字串）。**取代原本鬆散的 `RECORD_SORTABLE` set**。
 > - **`SortDirection(StrEnum)`** — `asc`/`desc`（同上，型別化方向）。
-> - `DEFAULT_PAGE_SIZE=20`、`MAX_PAGE_SIZE=100`（每頁筆數夾上限，§2.7-(1)／§5）；`DEFAULT_SORT="id:asc"`（service 於 `sort` 空值時套用）。
->   > 註：本 codebase 現無全域分頁常數（admin router 以 `Query(50, ge=1, le=200)` 就地界定）。本規格**新增** `MAX_PAGE_SIZE`/`DEFAULT_PAGE_SIZE`/`DEFAULT_SORT` 至 config，並把夾值移到 service（§2.7-(1) 已說明與 router `Query` bounds 的分工）。
+> - `DEFAULT_PAGE_SIZE=20`、`LIST_MAX_PAGE_SIZE=100`、`ANALYTICS_MAX_PAGE_SIZE=5000`、`DEFAULT_SORT="id:asc"`（§2.7-(1)；service 依呼叫情境選用對應上限）。
+>   > 註：本 codebase 現無全域分頁常數（admin router 以 `Query(50, ge=1, le=200)` 就地界定）。本規格**新增**上述常數至 config，並把夾值移到 service（§2.7-(1) 已說明與 router `Query` bounds 的分工）。`ANALYTICS_MAX_PAGE_SIZE=5000` 供 `05-analytics` 頁一次拉大批資料作前端 pandas 聚合；不應用於管理列表端點。
 >
 > **`RecordSortField` 是「欄位名」而非「分類值」**：其成員是 schema 的可排序欄（含名為 `category` 的欄），與 `record_categories` 表存的分類**資料**（感測器/系統…）正交、不重疊——前者由 schema+契約決定（改欄＝改碼），後者執行期由後台管理，故一個用 enum、一個用表（§2.4 同判準），無同步問題。
 
@@ -408,7 +416,7 @@ records 為純 admin 功能（role=0 不可呼叫，§2.9），故**建立者恆
 - 🔄 **`category` 改為 `record_categories` 查詢表 + 代理鍵 FK**（供下拉動態來源）——**推翻原「CHECK IN + StrEnum、不建 lookup 表」決定**（§2.4）。最佳實踐採 **`records.category_id` (int) FK → `record_categories.id`**（rename-safe、正規化、index 小）；前端 `category: str` 契約由 **API 邊界 `category_id ↔ name` 解析**維持不變。`name` 仍 unique。退場走 `is_active=False`，四分類由 migration seed。排序 `category` 依 `name`（§2.7）。
 - ✅ `title` 明文 `String(200)` 以支援不分大小寫子字串搜尋，刻意不加密（§2.5）。
 - ✅ `value` `Float` 對齊前端 dataclass（§2.6）。
-- ✅ **列表讀取路徑最佳實踐**（§2.7）：server-side 分類/關鍵字/排序/分頁；service 正規化（size 夾 `[1,100]`、page≥1、**sort 解析成 `RecordSortField` enum（唯一驗證點）**、**keyword LIKE 跳脫 + ESCAPE**、category 名→id）＋ repo 純查詢（收 enum、翻 Column/JOIN，比照 `AdminStatusFilter`+`_status_predicate`）；count/list **共用謂詞**；`ORDER BY … , id` **穩定分頁**；`sort=category` 依 `name`；解析走**單次 JOIN**（免 N+1）；採 **OFFSET 分頁**（契合 `Page{total,page}`）；夾值在 service、router 不設 `le` 上界（避免 FastAPI 先 422，§2.7-(1)）。
+- ✅ **列表讀取路徑最佳實踐**（§2.7）：server-side 分類/關鍵字/**日期範圍**/排序/分頁；service 正規化（size 依情境夾 `[1, LIST_MAX_PAGE_SIZE=100]` 或 `[1, ANALYTICS_MAX_PAGE_SIZE=5000]`、page≥1、**sort 解析成 `RecordSortField` enum（唯一驗證點）**、**keyword LIKE 跳脫 + ESCAPE**、category 名→id、**date_from/date_to 轉 UTC-aware datetime 邊界**）＋ repo 純查詢（收 enum + datetime、翻 Column/JOIN，比照 `AdminStatusFilter`+`_status_predicate`）；count/list **共用謂詞**；`ORDER BY … , id` **穩定分頁**；`sort=category` 依 `name`；解析走**單次 JOIN**（免 N+1）；採 **OFFSET 分頁**（契合 `Page{total,page}`）；夾值在 service、router 不設 `le` 上界（避免 FastAPI 先 422，§2.7-(1)）。
 - ✅ **權限模型：可見性全開 + 編輯權純 grade-based**（§2.9）：全部 active 記錄 viewer+ 可見；`editor`/`super_admin` 可全 CRUD、`viewer` 唯讀，**與擁有權無關**。**不需 per-row `can_edit` 旗標**——前端用 JWT grade 全域決定按鈕；後端寫入端點 `require_min_admin_role(EDITOR)` enforce。`created_by` 為純稽核/顯示。
 - ✅ **篩選 vs 寫入的分類解析分流**（§2.7-(1)／§4）：篩選允許 inactive 分類、寫入要求 active。
 - ✅ **例外繼承既有基類**（§0）：`Record*` 例外若新增須繼承 `NotFoundError`/`ForbiddenError`/`BusinessRuleError`（承 status_code）；或直接複用通用例外（codebase 現行風格）。屬 companion service/api 決策。
@@ -423,7 +431,7 @@ records 為純 admin 功能（role=0 不可呼叫，§2.9），故**建立者恆
 4. **`value` 是否需精確 `Numeric`**（金額/計量場景）？會改變前端契約型別。
 5. **`title` 全文檢索**：資料量大時 `LIKE '%kw%'`（前綴不定、無法用索引）退化，是否引入 MariaDB FULLTEXT／外部檢索？
 5b. **深分頁效能**：OFFSET 在 offset 上萬時變慢；是否在特定清單改 keyset/cursor 分頁（代價：失去精確 total 與任意跳頁，與現有 `Page{total,page}` 契約相斥）。
-5c. **`MAX_PAGE_SIZE=100` 數值**：是否符合實際清單需求（可調 config）。
+5c. ~~**`MAX_PAGE_SIZE=100` 數值**~~ → **已定案採兩層上限**（§2.7-(1)／§8）：管理列表 `LIST_MAX_PAGE_SIZE=100`（對齊前端 selectbox `[20,50,100]`）；分析全量拉取 `ANALYTICS_MAX_PAGE_SIZE=5000`（對齊 `05-analytics` 頁 `GET /records?size=5000`）。
 5d. ~~row-level 可見性~~ → **已定案：全部可見、只有編輯受限**（不做 row-level 過濾，§2.9／§8）。
 6. **匯入去重**：前端 mock 階段不去重（`data-source.md` §匯入）；後端是否需唯一鍵？
 7. ~~分類 FK 自然鍵 vs 代理鍵~~ → **已定案採代理鍵 `category_id`**（§2.4／§8）。
