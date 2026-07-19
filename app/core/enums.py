@@ -5,14 +5,15 @@ class AdminRole(IntEnum):
     """Admin 型別內的權限等級（有序階梯，rank = value）。存於 admins.admin_role（SmallInteger）。
 
     IntEnum：值即 rank，可直接比大小（`role >= AdminRole.EDITOR`），並支援 SQL 層比 rank
-    （`WHERE admin_role >= 5`、`ORDER BY`）。間隙 5 供未來插值免重編號（見 enum-int.md）。
-    與 principals 的型別判別子 Role（USER/ADMIN）不同層次。授權階梯（require_min_admin_role）
-    與 grade claim 見 docs/specs/rbac.md。
+    （`WHERE admin_role >= 50`、`ORDER BY`）。大間隙（0/50/100/999）供未來插值免重編號；
+    ROOT 為階梯天花板（bootstrap root，is_protected）。上限不變式：admin_role < 1000。
+    與 principals 的型別判別子 Role（USER/ADMIN）不同層次。見 docs/specs/enum-int.md、rbac.md。
     """
 
     VIEWER = 0  # 唯讀（最低權限，建立預設）
-    EDITOR = 5  # 內容編輯
-    SUPER_ADMIN = 10  # 全權，含管理其他 admin
+    EDITOR = 50  # 內容編輯
+    SUPER_ADMIN = 100  # 全權，含管理其他 admin
+    ROOT = 999  # bootstrap root（is_protected）；天花板，供 root-only API gating
 
 
 class UserTier(IntEnum):
@@ -36,6 +37,31 @@ class AdminStatusFilter(StrEnum):
     ARCHIVED = "archived"  # archived_at IS NOT NULL AND deleted_at IS NULL
     DELETED = "deleted"  # deleted_at IS NOT NULL
     ALL = "all"  # 不篩
+
+
+class RecordSortField(StrEnum):
+    """Record 可排序欄位白名單，值對映前端 SORTABLE（契約不變，records-model.md §1/§4）。
+
+    封閉白名單、驗證單一真相（service `_parse_sort`）；repo 收 enum 即不可能非法欄名。
+    **不含 updated_at**（前端 SORTABLE 無此欄，records 亦無 updated_by，records-model §2.8）。
+    """
+
+    ID = "id"
+    TITLE = "title"
+    VALUE = "value"
+    CATEGORY = "category"
+    CREATED_AT = "created_at"
+
+
+class SortDirection(StrEnum):
+    """排序方向（型別化，供 service 解析與 repo 收參）。"""
+
+    ASC = "asc"
+    DESC = "desc"
+
+
+# list 未帶 sort 時套用（＝前端 DEFAULT_SORT，records-model.md §1）
+DEFAULT_SORT = "id:asc"
 
 
 class Role(IntEnum):

@@ -1,6 +1,6 @@
 """Unit tests for app/core/enums：AdminRole／UserTier 為 IntEnum（rank = value）。
 
-enum-int.md：rank 即 enum 值 → 支援 SQL 層比 rank、刪除分離的 rank dict。
+enum-int.md：rank 即 enum 值（0/50/100/999，含 ROOT）→ 支援 SQL 層比 rank、刪除分離的 rank dict。
 """
 
 from sqlalchemy import select
@@ -12,12 +12,15 @@ from app.services import AdminService
 
 
 def test_admin_role_int_values_and_order() -> None:
-    # 間隙 5（供未來插值免重編號，enum-int.md）
+    # 大間隙（enum-int.md）：0/50/100/999，ROOT 為天花板
     assert AdminRole.VIEWER == 0
-    assert AdminRole.EDITOR == 5
-    assert AdminRole.SUPER_ADMIN == 10
+    assert AdminRole.EDITOR == 50
+    assert AdminRole.SUPER_ADMIN == 100
+    assert AdminRole.ROOT == 999
     # rank = value：直接比大小（取代舊 ADMIN_ROLE_RANK dict）
-    assert AdminRole.SUPER_ADMIN > AdminRole.EDITOR > AdminRole.VIEWER
+    assert AdminRole.ROOT > AdminRole.SUPER_ADMIN > AdminRole.EDITOR > AdminRole.VIEWER
+    # 上限不變式：admin_role < 1000
+    assert max(AdminRole) < 1000
 
 
 def test_user_tier_int_values_and_order() -> None:
@@ -49,13 +52,10 @@ async def test_sql_level_rank_comparison(db_session: AsyncSession) -> None:
         .scalars()
         .all()
     )
-    assert list(rows) == ["edt", "spr"]  # editor(5) + super_admin(10)，依 rank 序
+    assert list(rows) == ["edt", "spr"]  # editor(50) + super_admin(100)，依 rank 序
 
 
 def test_admin_status_filter_values() -> None:
     # AdminStatusFilter 維持 StrEnum（非有序 rank、非落地排序需求）
     assert AdminStatusFilter.ACTIVE.value == "active"
-    assert AdminStatusFilter.ARCHIVED.value == "archived"
-    assert AdminStatusFilter.DELETED.value == "deleted"
-    assert AdminStatusFilter.ALL.value == "all"
     assert AdminStatusFilter("active") is AdminStatusFilter.ACTIVE

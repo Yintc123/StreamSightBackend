@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import hash_password, verify_password
-from app.core.enums import ADMIN_ROLE_RANK, AdminRole, AdminStatusFilter, Role
+from app.core.enums import AdminRole, AdminStatusFilter, Role
 from app.core.exceptions import (
     BadRequestError,
     BusinessRuleError,
@@ -27,7 +27,7 @@ from app.models.admin import Admin
 from app.repositories.admin import AdminListRow, AdminRepository
 from app.repositories.principal import PrincipalRepository
 from app.repositories.refresh_token import RefreshTokenRepository
-from app.services.initial_admin import INITIAL_ADMIN_PRINCIPAL_ID, is_initial_admin_username
+from app.services.initial_admin import is_initial_admin_username
 from app.services.ws.publisher import Publisher
 
 logger: logging.Logger = logging.getLogger(__name__)
@@ -158,6 +158,7 @@ class AdminService:
             NotFoundError: admin 不存在或已軟刪除。
         """
         admin: Admin = await self.get(admin_id)
+        self._guard_protected_target(admin, actor_principal_id)  # 其他 admin 不可改 root（§2.6）
         admin.name = name
         await self.session.commit()
         logger.info("Updated admin id=%s name by actor=%s", admin_id, actor_principal_id)
@@ -175,11 +176,8 @@ class AdminService:
             NotFoundError: admin 不存在或已軟刪除。
             UnauthorizedError: 舊密碼不符（統一訊息）。
             BadRequestError: 新密碼等於舊密碼。
-            ForbiddenError: 初始 super admin（憑證由 SSM 管理、不可經 API 改）。
         """
-        # 初始 super admin（哨兵 id）憑證存 SSM，不可經 API 改密碼。
-        if admin_id == INITIAL_ADMIN_PRINCIPAL_ID:
-            raise ForbiddenError("Initial admin password is managed out-of-band (SSM)")
+        # bootstrap root 為真實 DB admin、可自助改密碼（§2.6，移除舊哨兵 403）。
         admin: Admin = await self.get(admin_id)
         if not await verify_password(current_password, admin.password_hash):
             raise UnauthorizedError("Invalid credentials")
@@ -210,16 +208,18 @@ class AdminService:
             BusinessRuleError: 降級受保護 root／自我提權（皆 422）。
         """
         admin: Admin = await self.get(admin_id)
-        # H2：idempotent 先於守衛
+        # §2.6：其他 admin 不可改 root（含 set_admin_role）→ 403（先於 idempotent/不變式）
+        self._guard_protected_target(admin, actor_principal_id)
+        # H2：idempotent 先於守衛（本人對 root 設回 ROOT → no-op）
         if admin.admin_role == admin_role.value:
             return admin
-        # 受保護守衛（單列）：受保護者不可降級（→非 super_admin）
-        if admin.is_protected and admin_role is not AdminRole.SUPER_ADMIN:
+        # 受保護守衛（單列）：受保護 root 不可降級（→非 ROOT）
+        if admin.is_protected and admin_role is not AdminRole.ROOT:
             raise BusinessRuleError("cannot demote the protected root admin")
         # 自我提權守衛（單列）：本人不可把自己升到更高等級
         if (
             actor_principal_id == admin.principal_id
-            and ADMIN_ROLE_RANK[admin_role] > ADMIN_ROLE_RANK[AdminRole(admin.admin_role)]
+            and admin_role > admin.admin_role  # rank = value（IntEnum），直接比較
         ):
             raise BusinessRuleError("cannot elevate your own role")
         admin.admin_role = admin_role.value
@@ -232,14 +232,29 @@ class AdminService:
         )
         return admin
 
+    def _guard_protected_target(self, target: Admin, actor_principal_id: int | None) -> None:
+        """root（is_protected）的任何資訊只有 root 自己能改；其他 admin → 403（bootstrap §2.6）。
+
+        僅在有具名 actor 且非本人時擋（403）；actor=None（seed/script）或本人交由既有不變式
+        （`_guard_transition` 的 is_protected → 422）處理。純單列判斷。
+        """
+        if (
+            target.is_protected
+            and actor_principal_id is not None
+            and actor_principal_id != target.principal_id
+        ):
+            raise ForbiddenError("cannot modify the protected root admin")
+
     def _guard_transition(
         self, admin: Admin, actor_principal_id: int | None, *, action: str
     ) -> None:
-        """封存／軟刪除的單列守衛（authoritative，繞過 api 亦安全）。§3.5。
+        """封存／軟刪除的單列守衛（authoritative，繞過 api 亦安全）。§3.5／§2.6。
 
         M3：受保護／super_admin 守衛**恆適用**（含 actor=None 的 seed/script）；禁對自己僅在
         有 actor 時適用。皆只讀 target 自己那一列——無聚合、無鎖、無 write skew。
         """
+        # §2.6：其他 admin 碰 protected root → 403（先於既有 is_protected 不變式 422）
+        self._guard_protected_target(admin, actor_principal_id)
         if admin.is_protected:
             raise BusinessRuleError(f"cannot {action} the protected root admin")
         if admin.admin_role == AdminRole.SUPER_ADMIN.value:

@@ -19,8 +19,13 @@ class _FakeBridge:
     async def stop(self) -> None: ...
 
 
+async def _noop_ensure_initial_admin(_session: object) -> None:
+    """no-op：本測試聚焦 WS shutdown，與 bootstrap root 無關（見 test_initial_admin.py）。"""
+
+
 async def test_lifespan_shutdown_closes_connections_1012(monkeypatch) -> None:
     monkeypatch.setattr("app.app.WsBridge", _FakeBridge)
+    monkeypatch.setattr("app.app.ensure_initial_admin", _noop_ensure_initial_admin)
     app = create_app()
     conn = make_connection(principal_id=1, sid="s", cid="c")
 

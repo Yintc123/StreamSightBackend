@@ -1,5 +1,11 @@
 # 規格書：WebSocket 模組（Admin 即時推播）
 
+> 🔺 **變更註記（IntEnum + ROOT，權威 delta；衝突以本註記為準）**——依 [`enum-int.md`](./enum-int.md) + [`bootstrap-hidden-admin.md`](./bootstrap-hidden-admin.md)（規劃中）：
+> 1. **`AdminRole` 由 `StrEnum` → `IntEnum`**（`VIEWER=0/EDITOR=50/SUPER_ADMIN=100/ROOT=999`）；**`ADMIN_ROLE_RANK` dict 移除**，topic rank 比較改**直接比值**（`conn.admin_role < min_role`）。
+> 2. **`welcome` 訊息的 `admin_role` 由字串 → int**（方案 A，wire 也 int）；`Connection.admin_role`（`manager.py`）與 `WelcomeMessage.admin_role`（`dtos/ws.py`）型別 `str → int`。
+> 3. **topic 門檻可用 `ROOT`**：敏感 topic 若限 root，`TOPIC_MIN_ROLE[...] = AdminRole.ROOT`；root 通過所有 super_admin topic（999≥100）。
+> 4. 初始 admin 為真實 DB root（非哨兵）→ ws reauth 的 `principal_id==0` 特判移除，走一般 DB 查現值。
+
 > 狀態：**Draft（設計，待實作）** ／ 目標版本：next+3 ／ 開發模式：**嚴格 TDD（見 `CLAUDE.md`）**
 >
 > **語言**：繁體中文。

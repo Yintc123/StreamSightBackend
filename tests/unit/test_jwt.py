@@ -52,10 +52,10 @@ def test_access_token_admin_role_claim() -> None:
 
 def test_grade_claim_included_when_provided() -> None:
     """rbac §4：帶 grade → payload 有 grade key（前端讀等級）。"""
-    token: str = create_access_token(user_id, Role.ADMIN, grade="editor")
+    token: str = create_access_token(user_id, Role.ADMIN, grade=50)
     payload: dict = decode_token(token)
 
-    assert payload["grade"] == "editor"
+    assert payload["grade"] == 50
     assert set(payload.keys()) == {"sub", "type", "role", "grade", "iat", "exp"}
 
 
@@ -72,12 +72,12 @@ def test_extract_grade_missing_returns_none() -> None:
 
 
 def test_extract_grade_reads_claim() -> None:
-    assert extract_grade({"grade": "super_admin"}) == "super_admin"
+    assert extract_grade({"grade": 100}) == 100
 
 
 def test_sid_claim_included_when_provided() -> None:
     """§2.11：帶 sid → payload 有 sid key（= refresh family_id，供 WS 綁 session）。"""
-    token: str = create_access_token(user_id, Role.ADMIN, grade="editor", sid="fam-123")
+    token: str = create_access_token(user_id, Role.ADMIN, grade=50, sid="fam-123")
     payload: dict = decode_token(token)
 
     assert payload["sid"] == "fam-123"

@@ -34,7 +34,7 @@ async def test_admin_login_token_grade_is_admin_role(db_session: AsyncSession) -
     resp = await AuthService(db_session).admin_login(
         AdminLoginRequest(username="cms", password="longpassword")
     )
-    assert decode_token(resp.access_token)["grade"] == "super_admin"
+    assert decode_token(resp.access_token)["grade"] == 100
 
 
 async def test_user_login_token_grade_is_user_tier(db_session: AsyncSession) -> None:
@@ -42,14 +42,14 @@ async def test_user_login_token_grade_is_user_tier(db_session: AsyncSession) -> 
     auth = AuthService(db_session)
     await auth.register(RegisterRequest(email="u@example.com", name="U", password="longpassword"))
     resp = await auth.login(LoginRequest(email="u@example.com", password="longpassword"))
-    assert decode_token(resp.access_token)["grade"] == "free"
+    assert decode_token(resp.access_token)["grade"] == 0
 
 
 async def test_register_token_has_grade(db_session: AsyncSession) -> None:
     resp = await AuthService(db_session).register(
         RegisterRequest(email="r@example.com", name="R", password="longpassword")
     )
-    assert decode_token(resp.access_token)["grade"] == "free"
+    assert decode_token(resp.access_token)["grade"] == 0
 
 
 async def test_refresh_reflects_updated_admin_role(db_session: AsyncSession) -> None:
@@ -59,13 +59,13 @@ async def test_refresh_reflects_updated_admin_role(db_session: AsyncSession) -> 
     auth = AuthService(db_session)
     login = await auth.admin_login(AdminLoginRequest(username="cms", password="longpassword"))
     assert login.refresh_token is not None
-    assert decode_token(login.access_token)["grade"] == "viewer"
+    assert decode_token(login.access_token)["grade"] == 0
 
     await AdminService(db_session).set_admin_role(
         admin.id, admin_role=AdminRole.EDITOR, actor_principal_id=actor.principal_id
     )
     refreshed = await auth.refresh(RefreshRequest(refresh_token=login.refresh_token))
-    assert decode_token(refreshed.access_token)["grade"] == "editor"
+    assert decode_token(refreshed.access_token)["grade"] == 50
 
 
 # ── set_tier / set_admin_role 寫入 child ──

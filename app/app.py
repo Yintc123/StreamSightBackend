@@ -11,6 +11,7 @@ from .core.db import AsyncSessionLocal, engine
 from .core.exceptions import setup_exception_handlers
 from .core.logging import setup_logging
 from .core.redis import close_redis, redis_client
+from .services.initial_admin import ensure_initial_admin
 from .services.monitoring.db_probe import MariaDbStatsProbe, PoolStatsProbe
 from .services.monitoring.infra_probe import InfraProbe
 from .services.monitoring.infra_sampler import InfraSampler
@@ -27,6 +28,10 @@ from .services.ws.publisher import Publisher
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     """App lifespan：startup / shutdown（websocket §2.10，monitoring.md §2.5）。"""
     settings: BaseAppSettings = get_app_settings()
+
+    # startup：bootstrap root（開機 upsert 真實 root 列；三 env 必填、政策 fail-fast，bootstrap §3）
+    async with AsyncSessionLocal() as _session:
+        await ensure_initial_admin(_session)
 
     # startup：WS bridge
     bridge: WsBridge = WsBridge(redis_client, app.state.ws_manager)

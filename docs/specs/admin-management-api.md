@@ -1,6 +1,12 @@
 # 規格書（API 層）：Admin 管理 — HTTP 端點
 
-> 狀態：**已實作（✅ 547 tests 全綠，ruff / pyright 通過）** ／ 目標版本：next+2 ／ 開發模式：**嚴格 TDD（見 `CLAUDE.md`）**
+> 🔺 **變更註記（root 落地為真實 DB 列 + IntEnum，權威 delta；衝突以本註記為準）**——依 [`bootstrap-hidden-admin.md`](./bootstrap-hidden-admin.md) + [`enum-int.md`](./enum-int.md)（規劃中，待實作）：
+> 1. **root 保護（§2.6）**：對 **protected root** 的 `PATCH /admin/admins/{id}`（改名）、set_admin_role、archive、delete，**actor 非 root 本人 → 403 `ForbiddenError`**（`_guard_protected_target`；補 `update` 現有無守衛漏洞）。root **可自管**（改自己名/密碼）。既有 is_protected **不變式**（連 root 自己都不能降級/archive/delete）維持 **422**。
+> 2. **`admin_role` / `tier` 對外為 int**（方案 A，`enum-int.md`）：`AdminCreateRequest`/`AdminRoleUpdateRequest`/`AdminSummary` 的 `admin_role`、`UserResponse.tier`、JWT `grade` claim 全 int（`VIEWER=0/EDITOR=50/SUPER_ADMIN=100/ROOT=999`）。前端配合。
+> 3. **root 的 grade = `ROOT`（999）**：root 通過所有 `require_min_admin_role(SUPER_ADMIN)` 端點；未來 **root-only 端點**掛 `Depends(require_min_admin_role(AdminRole.ROOT))`（只有 root 過、一般 super_admin → 403）。
+> 4. **`create` 仍恆 `is_protected=False`**（root 不經 API 建，走開機 `ensure_initial_admin`）。`AdminSummary.is_protected`（前端據此對 root 停用編輯/刪除鈕）不變。
+>
+> 狀態：**已實作（✅ 547 tests 全綠）；⚠️ 部分內容由「🔺 變更註記」反轉為「待實作」**（protected root 非本人操作→403、admin_role/grade 對外 int、root grade=ROOT——見上方 delta；實作見 [`implementation-roadmap.md`](./implementation-roadmap.md)）／ 目標版本：next+2 ／ 開發模式：**嚴格 TDD（見 `CLAUDE.md`）**
 >
 > 📎 本文是「Admin 管理」三份規格的 **API 層**。另兩份：
 > - [`admin-management-model.md`](./admin-management-model.md)（資料模型層）

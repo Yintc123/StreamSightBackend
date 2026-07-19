@@ -1,8 +1,29 @@
-"""PII masking utilities for logs and display.
+"""PII masking + admin 帳號欄位政策（單一真相）utilities。
 
 Masking is for logging/display only — DB storage, email sending,
 and business logic use raw values.
 """
+
+import re
+
+# admin 帳號欄位政策（單一真相）：DTO（AdminCreateRequest…）與 bootstrap `_validate_admin_fields` 共用。
+MIN_PASSWORD_LEN = 8
+MAX_PASSWORD_LEN = 128
+MAX_NAME_LEN = 100
+# username 格式（正規化後）：小寫英數 . _ -，長度 3-100。見 admin-account-refinement §2.1。
+USERNAME_RE: re.Pattern[str] = re.compile(r"^[a-z0-9._-]{3,100}$")
+
+
+def validate_admin_password(password: str) -> None:
+    """密碼政策：長度 8-128。不符 → ValueError（呼叫端轉對應例外/fail-fast）。"""
+    if not (MIN_PASSWORD_LEN <= len(password) <= MAX_PASSWORD_LEN):
+        raise ValueError(f"password must be {MIN_PASSWORD_LEN}-{MAX_PASSWORD_LEN} chars")
+
+
+def validate_admin_username(username: str) -> None:
+    """username 格式（正規化後）。不符 → ValueError。"""
+    if not USERNAME_RE.fullmatch(username):
+        raise ValueError("invalid admin username format")
 
 
 def normalize_username(raw: str) -> str:

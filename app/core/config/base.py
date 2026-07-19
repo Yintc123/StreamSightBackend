@@ -96,18 +96,18 @@ class BaseAppSettings(BaseSettings):
 
     # 初始 super admin（憑證存 SSM／config、**不進 DB**；恆為 super_admin、只發 access token、
     # 不可改密碼／鎖死）。兩者皆非空才啟用。登入後用來建立 DB admin（取代舊 seed 腳本）。
-    # 密碼以 argon2id 雜湊形式存放（明文永不落地）。
+    # bootstrap root：開機時 upsert 成真實 DB admin（bootstrap-hidden-admin.md）。三者皆必填。
     initial_admin_username: str = Field(
         default="",
-        description="Initial super admin username (SSM-backed, not in DB; empty = disabled)",
+        description="Bootstrap root admin username (env; seeded to DB at startup)",
     )
     initial_admin_name: str = Field(
         default="",
-        description="Initial super admin display name (optional; empty → 用 username)",
+        description="Bootstrap root admin display name (env; required)",
     )
-    initial_admin_password_hash: SecretStr = Field(
+    initial_admin_password: SecretStr = Field(
         default=SecretStr(""),
-        description="Initial super admin argon2id password hash (SSM SecureString; empty = disabled)",
+        description="Bootstrap root admin plaintext password (env/SSM SecureString; hashed at startup)",
     )
 
     # ── WebSocket（Admin 即時推播，websocket §4.1）─────────────────────────
@@ -231,6 +231,12 @@ class BaseAppSettings(BaseSettings):
         ge=0,
         description="可選按時間修剪（MINID，秒）；0 = 只靠 MAXLEN",
     )
+
+    # ── Records（records-service.md §2.2）───────────────────────────────────
+    records_max_page_size: int = Field(
+        default=100, ge=1, le=1000, description="Records 列表每頁上限（service 夾值）"
+    )
+    records_default_page_size: int = Field(default=20, ge=1, description="Records 列表預設每頁筆數")
 
     # ── Infra Monitoring（infra-monitoring.md §4.3）─────────────────────────
     monitoring_infra_enabled: bool = Field(

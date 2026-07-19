@@ -8,7 +8,7 @@
 
 ## 0. 一句話
 
-初始/root admin 從「SSM 哨兵（不落 DB、每處特判）」改成**一筆開機時自動建立的普通 `super_admin` 真實 DB 列 + `is_protected=True`**。username/name 由 env、**初始密碼由 env 明文於啟動時 hash 後寫入 DB**（seed-once）。**登入、稽核、授權、改密碼全走一般路徑，零特判**——root 就是「一個開機自動建立、初始密碼來自 env 的普通 super_admin」。
+初始/root admin 從「SSM 哨兵（不落 DB、每處特判）」改成**一筆開機時自動建立的最高階 admin（grade `ROOT`，§2.6）真實 DB 列 + `is_protected=True`**。username/name 由 env、**初始密碼由 env 明文於啟動時 hash 後寫入 DB**（seed-once）。**登入、稽核、授權、改密碼全走一般路徑，零特判**——root 就是「一個開機自動建立、初始密碼來自 env 的普通 admin（只是 grade 最高＋受保護）」。
 
 **核心體悟（判準）**：哨兵模式存在的唯一理由是「希望 root 不進 DB」。**root 一旦進 DB，哨兵模式（synthetic admin / `principal_id=0` / `sub==0` 分支 / SSM 登入特判 / API 不可改密碼）就全部失去存在意義，應一併移除。**
 
@@ -38,13 +38,14 @@
 | `principals.id` / `admins.id` | **自增**（不指定） | DB |
 | `admins.principal_id` | = 上面 principals 自增 id | 交易內捕捉 |
 | `admins.username` | `settings.initial_admin_username` | **env** |
-| `admins.name` | `settings.initial_admin_name or username` | **env** |
-| `admins.admin_role` | `super_admin` | 常數 |
+| `admins.name` | `settings.initial_admin_name` | **env（必填）** |
+| `admins.admin_role` | `ROOT`（`AdminRole.ROOT=999`，非 SUPER_ADMIN） | 常數（§2.6 root-only gating） |
 | `admins.is_protected` | `True` | 常數 |
 | `admins.password_hash` | `await hash_password(settings.initial_admin_password)` | **env 明文 → 啟動 hash** |
 
-- `is_protected=True` → 既有 `_guard_transition` + CHECK（`is_protected⟹super_admin`、`⟹active`）**擋掉被 archive/delete/降級**。
-- **啟用條件**：`initial_admin_username` 與 `initial_admin_password` 皆非空才 seed（否則功能關閉、不建列）。
+- `is_protected=True` → 既有 `_guard_transition` + CHECK（**`is_protected⟹ROOT(999)`**、`⟹active`）**擋掉被 archive/delete/降級**。
+  > ⚠️ **本 Phase 負責 protected→ROOT 的轉移**（enum-int 只做純翻譯 `⟹100`）：需一支**小 migration** 把 `ck_admins_protected_is_super` 從 `is_protected = 0 OR admin_role = 100` 改為 `= 999`；並把 service 守衛（`set_admin_role` 的「受保護不可降級」）從 `is not SUPER_ADMIN` 改為 `is not ROOT`。因 seed root 之前既有無 `is_protected=True` 列，改 CHECK 不擋既有資料；改完才 seed root(999, protected)。
+- **啟用條件**：`initial_admin_username`、`initial_admin_password`、`initial_admin_name` **皆為必填**；任一為空 → 啟動 fail-fast（§3.3）。
 
 ### 2.2 登入（`auth.py:admin_login`）— **完全一般化**
 - **移除** `if is_initial_admin_username(...)` 整條 SSM 驗證分支。
@@ -75,6 +76,60 @@
 - root 為真實 DB admin → `records.created_by_principal_id` FK→`admins.principal_id` **自然滿足**。
 - 已移除 `records-model.md` §2.1 bootstrap 守衛／§7.4／§8／§9-1a；`records-service.md` `_guard_not_initial_admin`／相關步驟／§6.4；`records-api.md` §0/§2/§6/§8.6 對應項。
 
+### 2.6 root 受保護範圍：其他 admin 不可 C/U/D root（只有 root 自己能管）
+
+**授權規則**：`root`（`is_protected=True` 那筆 super_admin）**的任何資訊只有 root 自己能改**；**其他 admin（含一般 super_admin）一律不可對 root 新增/修改/刪除/封存/降級**。這是 root 與一般 super_admin 的唯一權限差異（root 不因此對「非 root」目標有額外權力——一般 super_admin 之間互管照舊）。
+
+> **✅ root 作為 actor：grade = `ROOT`（≥ super_admin）→ super_admin API 全可用、且可 gate root-only**：授權只讀 `admin.admin_role`（`require_min_admin_role`，auth.py:103）。root 的 `admin_role=ROOT(999) > SUPER_ADMIN(100)` → **通過所有 super_admin 等級檢查、可用一切 super_admin API**（管理其他 admin、records CRUD、monitoring、WS…）。舊哨兵對 root 的 actor 側限制（不能寫 records、不能改自己密碼）已於 §2.4 全移除。
+>
+> **未來 root-only API（現在就把軸備好）**：需要「super_admin 不能用、只有 root 能用」的端點時，掛 `Depends(require_min_admin_role(AdminRole.ROOT))` 即可——只有 root（999）過、一般 super_admin（100）→ 403。**兩軸分工**：`admin_role`（含 ROOT 階梯）＝ **actor 能做什麼**；`is_protected` ＝ **target 能不能被動**（§2.6 保護，純 target 側）。root ＝「grade 最高（ROOT）＋ 誰也動不了（is_protected）」。
+
+#### 授權 gating recipe（實作者照抄）
+
+**兩種 actor gating**（皆用 `require_min_admin_role`，階梯比較 `admin.admin_role >= minimum`）：
+
+| 依賴 | VIEWER(0) | EDITOR(50) | SUPER_ADMIN(100) | ROOT(999) |
+|---|---|---|---|---|
+| `require_min_admin_role(SUPER_ADMIN)` | ❌ | ❌ | ✅ | ✅ |
+| `require_min_admin_role(ROOT)` | ❌ | ❌ | ❌ | ✅ |
+
+```python
+_require_super = require_min_admin_role(AdminRole.SUPER_ADMIN)   # super_admin + root（門檻設 SUPER_ADMIN，root 自動涵蓋）
+_require_root  = require_min_admin_role(AdminRole.ROOT)           # root only（ROOT 為天花板，>=ROOT ⟺ ==ROOT）
+
+@router.post("/admin/xxx")            # 給 super_admin + root
+async def a(_: Admin = Depends(_require_super)): ...
+
+@router.post("/admin/root-only-xxx")  # 只給 root（super_admin → 403）
+async def b(_: Admin = Depends(_require_root)): ...
+```
+
+- **給 root + super_admin** → 門檻設 `SUPER_ADMIN`（既有 admin 管理端點就是這樣，enum-int + ROOT 後 root 自動涵蓋、免改）。
+- **只給 root** → 門檻設 `ROOT`。
+- **⚠️ 這是 actor gating（誰能呼叫）**，與 target 保護（root **被當目標**時只有自己能改，下方矩陣 + `_guard_protected_target`）是**兩個獨立軸**——一支端點可同時有兩者（例：`PATCH /admin/admins/{id}` 用 `_require_super` gating + `_guard_protected_target` 保護 root 目標）。
+
+**權限矩陣（target = root）**：
+
+| 操作 | actor = root 自己 | actor = 其他 super_admin |
+|---|---|---|
+| 改名（`PATCH /admin/admins/{id}`） | ✅ 可自管（D1） | ❌ **403** |
+| set_admin_role | ❌（不變式：is_protected 不能降級） | ❌ 403 |
+| archive / delete | ❌（不變式：is_protected 恆 active） | ❌ 403 |
+| 改密碼（`/admin/me/password`，self-only） | ✅ 可自管 | 不適用（無跨帳號改密碼端點） |
+| 建立 root | — | ❌ 不可能（`is_protected` 僅 seed 設，`AdminCreateRequest` 恆 False） |
+
+**守衛（新增 `_guard_protected_target`，補現有漏洞）**：
+```python
+def _guard_protected_target(target: Admin, actor_principal_id: int | None) -> None:
+    # root 只有自己能改；其他 admin（含 super_admin）→ 403
+    if target.is_protected and actor_principal_id != target.principal_id:
+        raise ForbiddenError("cannot modify the protected root admin")   # D2：403
+```
+- **套用點**：`AdminService.update`（**現有漏洞**：admin.py:152 無 is_protected 守衛 → 目前任何 super_admin 可改 root 名，本規則補上）、`set_admin_role`；archive/delete 既有 `_guard_transition` 的 `is_protected` 分支已擋，語意併入本守衛（統一「碰 protected target 非本人 → 403」）。
+- **錯誤碼 D2 = 403 `ForbiddenError`**：「無權操作此目標」屬授權拒絕。⚠️ 注意與既有 `_guard_transition` 的 **is_protected 不變式回 422 `BusinessRuleError`** 的分工——**不變式**（連 root 自己都不能降級/刪自己）維持 422；**跨人操作 protected**（其他 admin 碰 root）為 403。實作時兩者可並存：先驗 `_guard_protected_target`（非本人 → 403），本人再落到既有不變式（422）。
+- **root 可自管（D1）**：改自己的名（update 自己 id）、改自己密碼（/me/password）走一般路徑放行；但降級/archive/delete 自己仍被既有不變式擋。
+- **前端（D3）**：root 那列的編輯/刪除鈕由前端以 `is_protected && 該列 principal_id != 自身` → disable（UX）；**不加 per-row `can_edit` 旗標**，前端自行由 `is_protected` + JWT `sub` 判斷。後端守衛為權威。
+
 ---
 
 ## 3. 啟動時 upsert（`ensure_initial_admin`）
@@ -83,15 +138,20 @@
 
 ```
 async def ensure_initial_admin(session):
-    if 未啟用（username 或 password 空）: return              # 功能關閉，不 seed
+    u, pw = settings.initial_admin_username, settings.initial_admin_password
+    name = settings.initial_admin_name
+    if not u or not pw or not name:                            # 皆必需：任一為空 → fail-fast（§3.3）
+        raise RuntimeError(
+            "INITIAL_ADMIN_USERNAME, INITIAL_ADMIN_PASSWORD, INITIAL_ADMIN_NAME are required — "
+            "app cannot start without admin credentials"
+        )
+    _validate_admin_fields(u, pw.get_secret_value(), name)     # 與一般 admin 同政策，不符 → RuntimeError（§3.3）
     if await admin_repo.protected_root_exists(): return         # 冪等鍵：已有任何 root 就跳過（§3.1）
-    u = settings.initial_admin_username
-    pw_hash = await hash_password(settings.initial_admin_password.get_secret_value())  # 啟動 hash（to_thread）
+    pw_hash = await hash_password(pw.get_secret_value())         # 啟動 hash（to_thread）
     try:
         principal = await principal_repo.create(Role.ADMIN)     # id 自增；與下 add 同一交易
-        session.add(Admin(principal_id=principal.id, username=u,
-            name=settings.initial_admin_name or u,
-            admin_role=super_admin, is_protected=True, password_hash=pw_hash))
+        session.add(Admin(principal_id=principal.id, username=u, name=name,
+            admin_role=AdminRole.ROOT, is_protected=True, password_hash=pw_hash))
         await session.commit()                                   # principal + admin 原子落地
     except IntegrityError:                                       # 併發輸家：另一 worker 已建
         await session.rollback()                                 # 視為已存在，no-op
@@ -107,10 +167,39 @@ async def ensure_initial_admin(session):
 - 只在**無任何 root 時**建立（§3.1）；建立後**不再同步**。root 之後可用改密碼 API 自行換（DB 為真相），env 明文變 inert。**最像普通 admin**。
 - ⚠️ **env 是 latent 憑證**：若 root **被刪到一個都不剩** / DB 重置，下次開機**用 env 明文重新 seed** → root 密碼退回 env 值。故 env 值須持續保密；改密碼後若要一致，另同步 SSM。
 
-### 3.3 session 生命週期
+### 3.3 config 缺失策略：**admin 憑證為必需（fail-fast）**
+
+**決策定案**：`INITIAL_ADMIN_USERNAME`、`INITIAL_ADMIN_PASSWORD`、`INITIAL_ADMIN_NAME` **三者皆為必需**；**任一為空 → 啟動即 `RuntimeError`，app 不啟動**。強制每個部署都設好 admin 帳號/密碼/顯示名。
+
+| config 狀態 | 行為 |
+|---|---|
+| **三者任一為空** | **fail-fast**：`ensure_initial_admin` 拋 `RuntimeError` → app 不啟動 |
+| **三者皆設** | 正常 seed（§3、§3.1）；已有 root 則冪等跳過 |
+
+- **✅ 這根除「靜默鎖死」**：fail-fast 保證「app 能啟動 ⟹ admin 憑證已設 ⟹ 第一個 admin 必可 bootstrap」。不會再有「開機成功但 admin 面板進不去、又不知為何」的情況。
+- **⚠️ 落點：fail-fast 在 `protected_root_exists()` 檢查之前**（無條件必需）。→ **即使已 bootstrap（root 已在 DB），移除 config 也會讓 app 開不了機**——env admin 憑證需**恆常設著**。取捨：換得「憑證永遠在、部署一致」；代價是改密碼後 env 仍需保留（可為已 inert 的舊值，僅供通過啟動檢查）。
+  > 若你反而想「bootstrap 後可移除 config」，把 fail-fast 移到 `protected_root_exists()` **之後**（只在「需 seed 卻無憑證」時才擋）即可——屬可調參數，本版採「無條件必需」對齊「要求 env 一定要設」。
+- **測試不受影響**：`ensure_initial_admin` 在 lifespan 呼叫，而 ASGITransport 不跑 lifespan（`conftest.py:169`）→ 測試 client 不觸發此 fail-fast；專屬測試顯式設/不設 env 呼叫本函式驗證（§5.1）。故**不需在 conftest 設 admin 憑證**。
+- **config 欄位（皆必填）**：`initial_admin_username`（env）/ `initial_admin_password`（env，`SecretStr`）/ `initial_admin_name`（env）。
+
+#### 欄位政策驗證（`_validate_admin_fields`）— 非空之外還要**合法**
+
+**bootstrap admin 受與「API 建立 admin」完全相同的欄位驗證**；任一不符 → 啟動 `RuntimeError`（指出哪個 env 不合法）。因 seed 走直接 insert、**繞過 DTO 與 `AdminService.create`**，故須在此顯式套用同一政策：
+
+| 欄位 | 政策 | 現行來源（政策單一真相） |
+|---|---|---|
+| password | 長度 **8–128** | `AdminCreateRequest.password`（`admin/schemas.py:42` `min_length=8,max_length=128`） |
+| username | `^[a-z0-9._-]{3,100}$`（正規化小寫後） | `_USERNAME_RE`（`admin.py:37,125`） |
+| name | 長度 1–100 | `admins.name` `String(100)` / DTO `max_length` |
+
+- **⚠️ 政策須單一真相、不可抄第二份**：把 `8`/`128`、`_USERNAME_RE` 抽成共用常數/`validate_admin_password()`／`validate_admin_username()`（`app/core/security.py` 或 `app/services/admin.py`），**DTO 與 `_validate_admin_fields` 共用** → 政策改一處、兩邊同步、不漂移。
+- **為何必要**：seed 繞過 DTO 的 `min_length=8` → 否則 `INITIAL_ADMIN_PASSWORD=123` 會**靜默種出弱密碼 root**（最高階帳號最該強卻最弱，搭配登入無 rate limit 可秒破）。fail-fast 讓 `123`／非法 username 在**部署當下**就被擋，而非上線後才爆。
+- password 驗**明文長度**（在 `hash_password` 之前）；驗畢才 hash。
+
+### 3.4 session 生命週期
 - 用 `AsyncSessionLocal`（`app.py` 已 import）開一次性 session，commit 後關閉，勿洩漏。
 
-### 3.4 毋須啟動驗 hash 格式
+### 3.5 毋須啟動驗 hash 格式
 - 因啟動時**自產** hash（`hash_password`），必為合法 argon2 → **不需**「驗 SSM hash 格式」那步（那是 Y/存 hash 契約才需要的）。
 
 ---
@@ -140,7 +229,7 @@ async def ensure_initial_admin(session):
 - **`GET /admin/admins` 會列出 root**：是否預設濾 `is_protected` 屬 admin-management-api 決策（§6）。
 
 ### 4.6 ✅ 反而變好
-- **防鎖死地板**：protected root 恆在 → 系統永遠 ≥1 super_admin，杜絕「最後兩個 super_admin 互刪到歸零 / 鎖死」（現有守衛皆單列、無計數守衛，靠此地板兜底）。
+- **防鎖死地板**：protected root（grade `ROOT` ≥ super_admin）恆在 → 系統永遠 ≥1 個 super_admin-或以上，杜絕「最後兩個互刪到歸零 / 鎖死」（現有守衛皆單列、無計數守衛，靠此地板兜底）。
 - **records 解鎖**：`created_by` FK 對 root 滿足 → records bootstrap 守衛移除。
 
 ### 4.7 可選硬化（與 root 無關的一般衛生）
@@ -151,16 +240,28 @@ async def ensure_initial_admin(session):
 ## 5. TDD 測試計畫（先寫、先看 RED）
 
 ### 5.1 新 RED
-- **`ensure_initial_admin` 單元**：未設 env → no-op（無列）；設 env → 建一筆 `super_admin`/`is_protected`，`password_hash` 可用 env 明文 `verify` 通過；**再呼叫一次 → 仍只有一筆**（seed-once 冪等）。
+- **`ensure_initial_admin` 單元**：設 env（皆設）→ 建一筆 `admin_role=ROOT`/`is_protected`，`password_hash` 可用 env 明文 `verify` 通過；**再呼叫一次 → 仍只有一筆**（seed-once 冪等）。
+- **config 必需（fail-fast，§3.3）**：`ensure_initial_admin` 在 **username / password / name 任一為空** → 拋 `RuntimeError`、**不建列**。逐一驗缺 username、缺 password、缺 name（及皆空）各拋 `RuntimeError`。
+- **欄位政策驗證（fail-fast，§3.3）**：非空但**不合法**亦 `RuntimeError`、不建列：
+  - `INITIAL_ADMIN_PASSWORD="123"`（<8）→ `RuntimeError`（同上限 129 字元 >128）。
+  - `INITIAL_ADMIN_USERNAME="AB!"`（違 `_USERNAME_RE`：太短/含非法字元）→ `RuntimeError`。
+  - `INITIAL_ADMIN_NAME` 過長（>100）→ `RuntimeError`。
+  - **政策共用驗證**：`_validate_admin_fields` 與 DTO 用同一常數/validator（改政策一處，兩邊同步）。
 - **單一 root 不變式（§3.1）**：DB 已有一個 protected root 時呼叫 `ensure_initial_admin`（**即使 env username 不同**）→ **不建第二個**，protected root 數恆為 1。`protected_root_exists()` 命中/未命中各驗一次。
 - **C2 迴歸（核心）**：seed root → root 登入取 token → `DELETE /admin/admins/{id}`／`archive` 另一 admin → **成功，`deleted_by/archived_by` = root 的 principal_id**（非 NULL、非 500）。哨兵版此測試現在跑會 500。
 - **登入一般化**：root 用 env 密碼登入 → 200 + 發 refresh token；錯密碼 → 401。
+- **root grade = ROOT（§2.6）**：seed 後 `root.admin_role == AdminRole.ROOT(999)`；登入 token 的 `grade` claim = 999；`require_min_admin_role(SUPER_ADMIN)` 放行 root（999≥100）；一般 super_admin（100）對假想 `require_min_admin_role(ROOT)` 端點 → 403、root → 200（驗 root-only gating 軸可用）。
 - **改密碼開放**：root 改自己密碼 → 200、撤 token；用舊密碼再登 → 401、新密碼 → 200。
-- **root 受保護**：對 root `archive`/`delete`/降級 → 422（`is_protected`）。
+- **root 受保護（§2.6）**：
+  - **其他 super_admin 碰 root → 403**：以另一個 super_admin 為 actor，`PATCH /admin/admins/{root_id}`（改名）、set_admin_role、archive、delete → **403 `ForbiddenError`**。
+  - **改名漏洞迴歸**：現況 `AdminService.update` 無 is_protected 守衛 → 此測試現在跑會**誤放行（改名成功）**；加守衛後轉 403。
+  - **root 自管放行（D1）**：root 自己 `PATCH /admin/admins/{自身id}` 改名 → 200；改自己密碼（/me/password）→ 200。
+  - **不變式維持 422**：對 root `archive`/`delete`/降級（含 root 自己）→ 422 `BusinessRuleError`（既有 `_guard_transition`）。
 - **lifespan 接線**：`LifespanManager` 起 app → root 列存在。
 
 ### 5.2 既有測試調整
 - `tests/conftest.py`：opt-in fixture（設 env + 呼叫 `ensure_initial_admin`）供初始 admin 測試；**預設不啟用**。
+  > ⚠️ **username 不可撞既有 `admin` fixture（定案，roadmap §4）**：conftest `ADMIN_USERNAME="root"` 的 `admin` fixture 建的是 **super_admin、`is_protected=False`、username="root"**（代表「一般 super_admin」，**非** bootstrap root）。初始 admin 專屬測試的 opt-in fixture 須用**不同 username**（如 `INITIAL_ADMIN_USERNAME="bootstrapadmin"`）並**不與 `admin` fixture 併用**——否則 `admins.username` UNIQUE 相撞、且兩個「root」語意混淆。`admin` fixture 本身維持不變。
 - 既有 `test_initial_admin.py`、`test_admin_auth_api.py`：改「真列」語意（DB 查得到、發 refresh token、可改密碼、無 synthetic）。
 
 ---
@@ -177,14 +278,16 @@ async def ensure_initial_admin(session):
 
 ## 7. 影響檔案清單（實作時逐一 TDD）
 - `app/core/config`（`initial_admin_password_hash` → `initial_admin_password`，`SecretStr`；啟用條件）
-- `app/services/initial_admin.py`（移除哨兵常數/synthetic/`initial_admin_hash`；新增 `ensure_initial_admin`；§2.4）
+- `app/services/initial_admin.py`（移除哨兵常數/synthetic/`initial_admin_hash`；新增 `ensure_initial_admin` + `_validate_admin_fields`；§2.4/§3.3）
+- **共用密碼/username 政策驗證**（`app/core/security.py` 或 `app/services/admin.py`）：抽 `MIN/MAX_PASSWORD_LEN`、`validate_admin_password()`／`validate_admin_username()`（＝`_USERNAME_RE`），**DTO `AdminCreateRequest` 與 `_validate_admin_fields` 共用**（§3.3 政策單一真相）
 - `app/repositories/admin.py`（新增 `protected_root_exists() -> bool`：`SELECT 1 ... WHERE is_protected = true LIMIT 1`，供 §3.1 冪等鍵）
 - `app/app.py`（lifespan startup 呼叫 `ensure_initial_admin`）
 - `app/services/auth.py`（登入一般化、移除 `sub==0` 合成分支；§2.2）
-- `app/services/admin.py`（移除 change_password 的初始 admin 403、`== INITIAL_ADMIN_PRINCIPAL_ID` 特判）
+- `app/services/admin.py`（移除 change_password 的初始 admin 403、`== INITIAL_ADMIN_PRINCIPAL_ID` 特判；**新增 `_guard_protected_target` 並套到 `update`／`set_admin_role`**——補「super_admin 可改 root 名」漏洞，§2.6）
+- 觸點文件：`admin-management-service.md`（`_guard_protected_target` 守衛 + 套用點）、`admin-management-api.md`（`PATCH /admin/admins/{id}` 等對 protected target 非本人回 **403**，§2.6）
 - `app/api/routers/ws/router.py`、`app/services/ws/reauth.py`（移除哨兵特判）
 - `tests/conftest.py`（opt-in seed fixture）＋ 初始 admin 專屬測試改真列語意
 - （可選）`app/core/auth/password.py`（`InvalidHashError` 硬化，§4.7）
 - 記憶 `initial-admin-sentinel-fk-gotcha`（標記已根治）
-- **無 alembic revision**（schema 無變更；身分為 env 驅動故走 startup upsert）
+- **一支小 alembic revision**（protected CHECK `⟹100` → `⟹999`，§2.1；接於 enum-int 之後）＋ 守衛 `SUPER_ADMIN`→`ROOT`（`admin.py`）。root 身分本身為 env 驅動故走 startup upsert（非 migration）。
 - 運維文件：bootstrap 密碼為 latent 憑證、首登即改、遺忘密碼的 DB 救援路徑（§4.3/§4.4）

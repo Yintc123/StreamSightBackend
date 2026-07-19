@@ -4,7 +4,6 @@ accept 前 GETDEL 驗票（單次、防重放）→ 重載 Admin 讀現值（is_
 失敗一律 accept 後 close(4401)（spike 陷阱 #2：4xxx close code 只在 upgrade 成功後有效）。
 """
 
-import pytest
 from httpx import AsyncClient
 from httpx_ws import WebSocketDisconnect, aconnect_ws
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -75,7 +74,7 @@ async def test_ws_valid_ticket_accepts_and_welcomes(ws_client: AsyncClient, admi
     async with aconnect_ws(f"http://test/ws?ticket={ticket}", ws_client) as ws:
         welcome = await ws.receive_json()
     assert welcome["type"] == "welcome"
-    assert welcome["admin_role"] == "super_admin"
+    assert welcome["admin_role"] == 100
     assert welcome["connection_id"]
 
 
@@ -86,7 +85,7 @@ async def test_ws_editor_can_connect(ws_client: AsyncClient, db_session: AsyncSe
     ticket = await _ticket(ws_client, username="ws-editor", password="longpassword")
     async with aconnect_ws(f"http://test/ws?ticket={ticket}", ws_client) as ws:
         welcome = await ws.receive_json()
-    assert welcome["admin_role"] == "editor"
+    assert welcome["admin_role"] == 50
 
 
 async def test_ws_archived_after_ticket_closes_4401(
@@ -102,21 +101,18 @@ async def test_ws_archived_after_ticket_closes_4401(
     assert await _expect_close_code(ws_client, f"http://test/ws?ticket={ticket}") == 4401
 
 
-async def test_ws_initial_admin_can_connect(
-    ws_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+async def test_ws_protected_root_can_connect(
+    ws_client: AsyncClient, db_session: AsyncSession
 ) -> None:
-    """初始 admin（sub=0）換 ticket → 亦可連（合成 super_admin）。"""
-    from pydantic import SecretStr
-
-    from app.core.auth import hash_password
-    from app.core.config import get_app_settings
-
-    settings = get_app_settings()
-    pw_hash = await hash_password("initial-longpassword")
-    monkeypatch.setattr(settings, "initial_admin_username", "root-init-ws")
-    monkeypatch.setattr(settings, "initial_admin_password_hash", SecretStr(pw_hash))
-
-    ticket = await _ticket(ws_client, username="root-init-ws", password="initial-longpassword")
+    """受保護 root（真實 DB 列、ROOT=999）換 ticket → 可連，welcome 帶 admin_role=999。"""
+    await AdminService(db_session).create(
+        username="root-ws",
+        name="R",
+        password="initial-longpassword",
+        admin_role=AdminRole.ROOT,
+        is_protected=True,
+    )
+    ticket = await _ticket(ws_client, username="root-ws", password="initial-longpassword")
     async with aconnect_ws(f"http://test/ws?ticket={ticket}", ws_client) as ws:
         welcome = await ws.receive_json()
-    assert welcome["admin_role"] == "super_admin"
+    assert welcome["admin_role"] == 999

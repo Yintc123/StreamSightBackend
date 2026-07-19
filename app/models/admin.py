@@ -41,11 +41,12 @@ class Admin(Base):
     password_hash: Mapped[str] = mapped_column(String(255))  # argon2id
 
     # 權限等級（可變，供 rbac 授權）。⚠️ 與上方常數 role 判別子不同層次（見 §2.7）。
-    # 存字串值 + CHECK 硬化；預設 VIEWER（最低權限 fail-safe，seed 例外給 super_admin）。
-    admin_role: Mapped[str] = mapped_column(
-        String(20),
+    # 存 int（rank = value，IntEnum）+ CHECK 硬化；預設 VIEWER（最低權限 fail-safe）。
+    # 見 docs/specs/enum-int.md：SmallInteger、`admin_role IN (0,50,100,999)`、上限 < 1000。
+    admin_role: Mapped[int] = mapped_column(
+        SmallInteger,
         default=AdminRole.VIEWER.value,
-        server_default=AdminRole.VIEWER.value,
+        server_default=text("0"),
     )
 
     # 受保護 root 標記（seed-only、不可經 API 切換）：把「≥1 super_admin」降為單列不變式。
@@ -77,12 +78,12 @@ class Admin(Base):
         ),
         CheckConstraint("role = 1", name="ck_admins_role_admin"),
         CheckConstraint(
-            "admin_role IN ('super_admin', 'editor', 'viewer')",
+            "admin_role IN (0, 50, 100, 999)",
             name="ck_admins_admin_role",
         ),
-        # 受保護者必為 super_admin（間接硬化「受保護者不可降級」）。§2.3
+        # 受保護者必為 ROOT（999，bootstrap root）；間接硬化「受保護者不可降級」。§2.6
         CheckConstraint(
-            "is_protected = 0 OR admin_role = 'super_admin'",
+            "is_protected = 0 OR admin_role = 999",
             name="ck_admins_protected_is_super",
         ),
         # 受保護者恆為 active（未封存、未軟刪除）——使「root 恆 active super_admin」除

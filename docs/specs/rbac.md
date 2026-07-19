@@ -2,6 +2,14 @@
 
 > 🔄 **變更註記（初始 admin 整併）**：seed 腳本已**移除**;初始 super admin 改為 SSM-backed「初始 admin」（`INITIAL_ADMIN_USERNAME` + `INITIAL_ADMIN_PASSWORD_HASH`，不進 DB、恆 `super_admin`、只發 access token；`app/services/initial_admin.py`）。故 §5.6「seed 佈 SUPER_ADMIN」不再適用——初始 super admin 直接由 SSM 憑證登入(合成 super_admin,不寫 `admins` 表)。`AdminRole` enum／`admin_role` 欄／授權面不受影響。
 
+> 🔺 **變更註記 2（IntEnum + ROOT + 真實 root，權威 delta；以下段落凡與此衝突者以本註記為準）**——依 [`enum-int.md`](./enum-int.md) + [`bootstrap-hidden-admin.md`](./bootstrap-hidden-admin.md)（規劃中，待實作）：
+> 1. **`AdminRole`/`UserTier` 由 `StrEnum` → `IntEnum`（rank = value）**：`VIEWER=0/EDITOR=50/SUPER_ADMIN=100/ROOT=999`；`FREE=0/PREMIUM=5`。凡本文述「`StrEnum` 字串等級」→ 改 **IntEnum 整數**。
+> 2. **`ADMIN_ROLE_RANK`/`USER_TIER_RANK` dict 移除**：rank 即 enum 值，`require_min_admin_role`/`require_min_tier` **直接比值**（`admin.admin_role < minimum`），非查 dict。§5.1/§8.1 的 rank 表**作廢**。
+> 3. **JWT `grade` claim 由字串 → int**（`_grade_of` 回 `admin.admin_role`/`user.user_tier`，現 int）。§4「grade 為字串」→ int。前端配合（int↔標籤）。R3「grade 用 StrEnum 字串」**反轉**為 int。
+> 4. **新增 `ROOT`（=999，階梯最上層）**：root（bootstrap 真實 DB 列、`is_protected`）的 grade 為 `ROOT`。`require_min_admin_role(SUPER_ADMIN)` 放行 root（999≥100）；**root-only 端點**掛 `require_min_admin_role(AdminRole.ROOT)`（gating recipe 見 bootstrap §2.6）。
+> 5. **SSM 哨兵 → 真實 DB root**：§5.6/§7 的「初始 admin 合成 super_admin、哨兵 `principal_id=0`、不寫 DB」**反轉**為 bootstrap §3 的「開機 upsert 真實 root 列（`admin_role=ROOT`、`is_protected=True`）」；登入/授權走一般路徑，`require_min_admin_role` 讀真實列。
+> 6. `admin_role` CHECK：`IN ('super_admin','editor','viewer')` → **`IN (0,50,100,999)`**；上限不變式 **< 1000**（enum-int）。
+
 > 狀態：Draft ／ 目標版本：next+1 ／ 開發模式：**嚴格 TDD（見 `CLAUDE.md`）**
 >
 > 📎 關鍵設計決策與取捨（為什麼這樣設計）另記於 [`../decisions/rbac.md`](../decisions/rbac.md)。本文聚焦「怎麼做」。

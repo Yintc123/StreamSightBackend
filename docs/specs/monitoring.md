@@ -1,5 +1,7 @@
 # 規格書：Monitoring 模組（Admin 監控：日誌查詢／DB 狀態／歷史查詢）
 
+> 🔺 **變更註記（IntEnum，權威 delta）**——依 [`enum-int.md`](./enum-int.md)：`ADMIN_ROLE_RANK` dict **已移除**（rank = enum 值，`require_min_admin_role` 直接比值）；本文「依賴 `ADMIN_ROLE_RANK`」改讀「`require_min_admin_role`（rank=value）」。端點授權（`require_min_admin_role(SUPER_ADMIN)` 等）**行為不變**（`AdminRole` 改 IntEnum、root=ROOT 自動涵蓋 super_admin 門檻）。
+
 > 狀態：**已實作（✅ 547 tests 全綠，ruff / pyright 通過）** ／ 目標版本：next+4 ／ 開發模式：**嚴格 TDD（見 `CLAUDE.md`）**
 >
 > **語言**：繁體中文。

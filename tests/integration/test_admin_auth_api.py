@@ -66,7 +66,7 @@ async def test_admin_me_returns_expected_shape(client: AsyncClient, admin: Admin
     body: dict[str, Any] = resp.json()
     assert set(body.keys()) == {"id", "username", "name", "admin_role"}
     assert body["username"] == ADMIN_USERNAME
-    assert body["admin_role"] == "super_admin"
+    assert body["admin_role"] == 100
     assert "email" not in body
     assert "archived_at" not in body
     assert "deleted_at" not in body

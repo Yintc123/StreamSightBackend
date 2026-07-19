@@ -38,7 +38,7 @@ class Connection:
         *,
         ws: WebSocket,
         principal_id: int,
-        admin_role: str,
+        admin_role: int,
         sid: str | None,
         cid: str | None,
         is_active: bool,
@@ -47,7 +47,7 @@ class Connection:
     ) -> None:
         self.ws: WebSocket = ws
         self.principal_id: int = principal_id
-        self.admin_role: str = admin_role
+        self.admin_role: int = admin_role  # rank = value（IntEnum），供 topic rank 比較
         self.sid: str | None = sid
         self.cid: str | None = cid
         self.is_active: bool = is_active

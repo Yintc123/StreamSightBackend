@@ -17,7 +17,7 @@ class WelcomeMessage(BaseModel):
 
     type: Literal[WSMessageType.WELCOME] = WSMessageType.WELCOME
     connection_id: str
-    admin_role: str
+    admin_role: int  # rank = value（IntEnum，方案 A：wire 也 int）；enum-int
 
 
 class SubscriptionAck(BaseModel):

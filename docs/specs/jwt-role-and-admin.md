@@ -5,6 +5,10 @@
 > - **seed 腳本已移除**;第一位 super admin 改為 **SSM-backed「初始 admin」**（`INITIAL_ADMIN_USERNAME` + `INITIAL_ADMIN_PASSWORD_HASH`，argon2 雜湊；**不進 DB**、哨兵 `principal_id=0`、恆 `super_admin`、只發 access token（TTL 3 小時，無 refresh）、不可改密碼／鎖死；`app/services/initial_admin.py`）。登入後用它建立 DB admin。
 > - 下文凡提及「seed script／`initial_admin_email`／`initial_admin_password`」處，以本註記為準（見 [`admin-management-service.md`](./admin-management-service.md) §3.7）。其餘 JWT／principals／role 判別子機制不受影響。
 
+> 🔺 **變更註記 2（grade int + ROOT + 真實 root，權威 delta；衝突以本註記為準）**——依 [`enum-int.md`](./enum-int.md) + [`bootstrap-hidden-admin.md`](./bootstrap-hidden-admin.md)（規劃中）：
+> - **JWT `grade` claim 由字串 → int**：`AdminRole`/`UserTier` 改 `IntEnum`（`VIEWER=0/EDITOR=50/SUPER_ADMIN=100/ROOT=999`；`FREE=0/PREMIUM=5`），`_grade_of`/`create_access_token(grade)`/`extract_grade` 三簽章改 `int`。`role` claim（0/1）本就是 int，不變。
+> - **初始 admin 哨兵 `principal_id=0` → 真實 DB root**：`admin_login` 移除 SSM 分支與「哨兵無 refresh／TTL 3h」例外；root 為真實列（`admin_role=ROOT`、`is_protected`），登入走一般路徑、**發 refresh token**。§（line 330 附近）的哨兵例外**作廢**。`get_admin_from_token` 的 `sub==0` 合成分支移除。
+
 > 狀態：**已實作**（enum/JWT role、principals supertype、複合 FK、Admin 模組、授權 dependency、seed 均已落地；migration 手寫待真 MariaDB 驗證，見 §12 cutover）／ 目標版本：next ／ 開發模式：**嚴格 TDD（見 `CLAUDE.md`）**
 >
 > 📎 關鍵設計決策與取捨（為什麼這樣設計）另記於 [`../decisions/jwt-role-and-admin.md`](../decisions/jwt-role-and-admin.md)。本文聚焦「怎麼做」（資料模型／介面／流程／測試計畫）。

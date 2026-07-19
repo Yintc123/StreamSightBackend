@@ -75,7 +75,7 @@ async def test_create_admin_201_and_not_protected(client: AsyncClient, admin: Ad
     assert resp.status_code == status.HTTP_201_CREATED
     body = resp.json()
     assert body["username"] == "newbie"
-    assert body["admin_role"] == "viewer"
+    assert body["admin_role"] == 0
     assert "is_protected" not in body  # AdminResponse 精簡、無狀態欄
 
     new_id = body["id"]
@@ -141,27 +141,28 @@ async def test_put_role_promote_200(
     token = await _login(client)
     ed = await _mk(db_session, "promo", AdminRole.EDITOR)
     resp = await client.put(
-        f"/admin/admins/{ed.id}/role", headers=_auth(token), json={"admin_role": "super_admin"}
+        f"/admin/admins/{ed.id}/role", headers=_auth(token), json={"admin_role": 100}
     )
     assert resp.status_code == status.HTTP_200_OK
-    assert resp.json()["admin_role"] == "super_admin"
+    assert resp.json()["admin_role"] == 100
 
 
-async def test_put_role_demote_protected_root_422(
+async def test_put_role_other_admin_touch_protected_root_403(
     client: AsyncClient, admin: Admin, db_session: AsyncSession
 ) -> None:
+    """§2.6：非本人的 admin 對受保護 root 動 role → 403（root 不可被他人修改）。"""
     token = await _login(client)
     root = await AdminService(db_session).create(
         username="proot",
         name="R",
         password="longpassword",
-        admin_role=AdminRole.SUPER_ADMIN,
+        admin_role=AdminRole.ROOT,
         is_protected=True,
     )
     resp = await client.put(
-        f"/admin/admins/{root.id}/role", headers=_auth(token), json={"admin_role": "editor"}
+        f"/admin/admins/{root.id}/role", headers=_auth(token), json={"admin_role": 50}
     )
-    assert resp.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+    assert resp.status_code == status.HTTP_403_FORBIDDEN
 
 
 async def test_change_own_password_204_then_old_refresh_dead(
@@ -244,9 +245,7 @@ async def test_two_step_remove_then_restore(
     token = await _login(client)
     sup = await _mk(db_session, "removeme", AdminRole.SUPER_ADMIN)
     # 先降級
-    await client.put(
-        f"/admin/admins/{sup.id}/role", headers=_auth(token), json={"admin_role": "viewer"}
-    )
+    await client.put(f"/admin/admins/{sup.id}/role", headers=_auth(token), json={"admin_role": 0})
     # 再軟刪除 → 200 AdminSummary（deleted_at 有值）
     dele = await client.delete(f"/admin/admins/{sup.id}", headers=_auth(token))
     assert dele.status_code == status.HTTP_200_OK

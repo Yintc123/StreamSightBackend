@@ -13,7 +13,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.repositories.admin import AdminRepository
 from app.repositories.refresh_token import RefreshTokenRepository
-from app.services.initial_admin import INITIAL_ADMIN_PRINCIPAL_ID
 
 # 「開一個 async session 的工廠」：呼叫回一個 yield AsyncSession 的 async context manager。
 # 同時容納生產的 async_sessionmaker（`AsyncSessionLocal()` → AsyncSession，本身即 async CM）
@@ -32,12 +31,9 @@ class WsReauthService:
     ) -> bool:
         """兩條件皆通過才回 True（is_active + session 有效性，§2.2）。
 
-        - principal_id == 0（初始 admin）：合成 super_admin、恆 active；無 sid → 不查 session。
-        - 一般 admin：Admin.is_active 為 False → False；sid 非 None 且該 family 已無 live token → False。
+        bootstrap root 為真實 DB admin → 一律查 DB（is_active + session），無哨兵特判。
+        Admin.is_active 為 False → False；sid 非 None 且該 family 已無 live token → False。
         """
-        if principal_id == INITIAL_ADMIN_PRINCIPAL_ID:
-            return True
-
         async with self._session_factory() as session:
             admin = await AdminRepository(session).get_by_principal_id(principal_id)
             if admin is None or not admin.is_active:

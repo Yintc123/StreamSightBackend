@@ -34,7 +34,7 @@ def fake_ws(conn: Connection) -> FakeWebSocket:
 def make_connection(
     *,
     principal_id: int = 1,
-    admin_role: str = "editor",
+    admin_role: int = 50,
     sid: str | None = "sess-1",
     cid: str | None = "tab-1",
     max_queue: int = 100,

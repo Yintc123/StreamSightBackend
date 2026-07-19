@@ -28,11 +28,10 @@ from app.core.auth import (
     generate_refresh_token,
     hash_password,
     hash_refresh_token,
-    verify_password,
     verify_password_or_dummy,
 )
 from app.core.config import get_app_settings
-from app.core.enums import AdminRole, Role
+from app.core.enums import Role
 from app.core.exceptions import ForbiddenError, UnauthorizedError
 from app.core.security import mask_email
 from app.dtos import (
@@ -49,13 +48,8 @@ from app.repositories.admin import AdminRepository
 from app.repositories.identity import IdentityRepository
 from app.repositories.principal import PrincipalRepository
 from app.repositories.refresh_token import RefreshTokenRepository
-from app.services.initial_admin import (
-    INITIAL_ADMIN_PRINCIPAL_ID,
-    build_initial_admin,
-    initial_admin_enabled,
-    initial_admin_hash,
-    is_initial_admin_username,
-)
+
+# bootstrap root 為真實 DB admin（無哨兵）：登入/授權全走一般路徑，不 import initial_admin。
 from app.services.user import UserService
 from app.services.ws.publisher import Publisher
 
@@ -64,8 +58,8 @@ logger: logging.Logger = logging.getLogger(__name__)
 PASSWORD_PROVIDER: str = "password"
 
 
-def _grade_of(child: User | Admin) -> str:
-    """讀 child 的等級字串供 grade claim：admin→admin_role、user→user_tier（rbac §4）。"""
+def _grade_of(child: User | Admin) -> int:
+    """讀 child 的等級（int，rank=value）供 grade claim：admin→admin_role、user→user_tier（enum-int）。"""
     return child.admin_role if isinstance(child, Admin) else child.user_tier
 
 
@@ -208,23 +202,7 @@ class AuthService:
         Raises:
             UnauthorizedError: username 不存在、密碼錯、或帳號封存／軟刪除（統一訊息）
         """
-        # 初始 super admin：憑證存 config／SSM、不進 DB。命中則驗 config 雜湊、只發 access token。
-        if is_initial_admin_username(payload.username):
-            if not await verify_password(payload.password, initial_admin_hash()):
-                raise UnauthorizedError("Invalid username or password")
-            access_token = create_access_token(
-                INITIAL_ADMIN_PRINCIPAL_ID,
-                Role.ADMIN,
-                grade=AdminRole.SUPER_ADMIN.value,
-                expire_seconds=3 * 3600,
-            )
-            logger.info("Initial super admin login success username=%s", payload.username)
-            return TokenPayload(
-                access_token=access_token,
-                refresh_token=None,
-                access_token_expire_seconds=3 * 3600,
-            )
-
+        # bootstrap root 為真實 DB admin（grade ROOT、is_protected）→ 走一般路徑，無哨兵特判。
         # DTO 已正規化 username（strip + lower）
         admin: Admin | None = await self.admin_repo.get_by_username(payload.username)
         # 常數時間：無論帳號是否存在都跑一次 argon2（None → 對 dummy hash），拉平時序防列舉。
@@ -405,13 +383,7 @@ class AuthService:
         if role is not Role.ADMIN:
             raise ForbiddenError("Admin role required")
 
-        # 初始 super admin：哨兵 sub=0 → 合成記憶體 Admin(super_admin)、不查 DB。
-        # 若 config 已停用（清空 INITIAL_ADMIN_*）,舊 token 立即失效（回 401）。
-        if principal_id == INITIAL_ADMIN_PRINCIPAL_ID:
-            if not initial_admin_enabled():
-                raise UnauthorizedError("Admin not found or inactive")
-            return build_initial_admin()
-
+        # bootstrap root 為真實 DB admin → 一般查詢，無 sub==0 合成分支。
         admin: Admin | None = await self.admin_repo.get_by_principal_id(principal_id)
         if admin is None or not admin.is_active:
             raise UnauthorizedError("Admin not found or inactive")

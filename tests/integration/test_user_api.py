@@ -142,7 +142,7 @@ async def test_users_me_exposes_tier(client: AsyncClient) -> None:
     token: str = reg.json()["access_token"]
     me: Response = await client.get("/users/me", headers=_auth(token))
     assert me.status_code == status.HTTP_200_OK
-    assert me.json()["tier"] == "free"
+    assert me.json()["tier"] == 0
 
 
 async def test_users_me_without_token_returns_401(client: AsyncClient) -> None:

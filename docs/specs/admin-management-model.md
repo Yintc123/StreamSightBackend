@@ -2,7 +2,16 @@
 
 > 🔄 **變更註記（初始 admin 整併）**：本文已改寫為「**≥1 super_admin 由 SSM 初始 admin 保證、`is_protected` 為可選休眠硬化**」的模型（§2.1／§2.2）;seed 腳本（`scripts/create_admin.py`）已移除,bootstrap 改走 SSM 初始 admin（見 [`admin-management-service.md`](./admin-management-service.md) §3.7、`app/services/initial_admin.py`）。
 
-> 狀態：**已實作（✅ 547 tests 全綠，ruff / pyright 通過）** ／ 目標版本：next+2 ／ 開發模式：**嚴格 TDD（見 `CLAUDE.md`）**
+> 🔺 **變更註記 2（root 落地為真實 DB 列 + IntEnum，權威 delta；以下段落凡與此衝突者以本註記為準）**——依 [`bootstrap-hidden-admin.md`](./bootstrap-hidden-admin.md) + [`enum-int.md`](./enum-int.md)（規劃中，待實作）：
+> 1. **`is_protected` 不再休眠**：改為開機時 `ensure_initial_admin` seed **一筆真實 root 列**（`is_protected=True`、`admin_role=ROOT`）。故 §2.1／§2.2／§6 的「休眠、預設無 protected 列、≥1 super_admin 由 SSM 哨兵保證」**反轉**為：**恰有一個 protected root 落地 DB，「≥1 super_admin-或以上」由此 protected root 地板保證**。**SSM 哨兵（`principal_id=0`／synthetic）移除**。
+> 2. **單一 root 不變式**：§2.2「允許多個受保護 root」→ 改為**最多一個**（seed 冪等鍵 `protected_root_exists()`，bootstrap §3.1）。
+> 3. **`admin_role` 由 `StrEnum`→`IntEnum`**（`VIEWER=0/EDITOR=50/SUPER_ADMIN=100/**ROOT=999**`）；欄型 `String(20)`→`SmallInteger`。凡 `admin_role IN ('super_admin','editor','viewer')` → **`IN (0,50,100,999)`**。
+>    - **📌 不變式：`admin_role` 最大值 < 1000**（ROOT=999 為硬上限，`≥1000` 保留、不得使用；所有值恆落 `[0,999]`）。`IN (0,50,100,999)` 已隱含此上限；如需明確兜底可加 CHECK `admin_role < 1000`（`enum-int.md`）。
+> 4. **CHECK `is_protected ⟹ super_admin` 兩階段**：Phase 1（enum-int，純翻譯）→ **`is_protected = 0 OR admin_role = 100`**；Phase 2（bootstrap，protected→ROOT）→ **`= 999`**。
+> 5. **新增 `_guard_protected_target`**（service 層）：其他 admin 對 root 之 update/set_admin_role/archive/delete → **403**（bootstrap §2.6；補既有 `update` 無守衛的漏洞）。既有 `_guard_transition` 的 is_protected **不變式**（連 root 自己都不能降級/archive/delete）維持 **422**。
+> 6. CHECK/欄型/資料轉換的 migration 由 `enum-int.md` 交付（§migration）。
+
+> 狀態：**已實作（✅ 547 tests 全綠）；⚠️ 部分內容由「🔺 變更註記 2」反轉為「待實作」**（`is_protected` 休眠→真實 root、admin_role StrEnum→IntEnum+ROOT、CHECK 改動——見上方 delta；實作見 [`implementation-roadmap.md`](./implementation-roadmap.md)）／ 目標版本：next+2 ／ 開發模式：**嚴格 TDD（見 `CLAUDE.md`）**
 >
 > 📎 本文是「Admin 管理」三份規格的 **Model 層**（資料模型）。另兩份：
 > - [`admin-management-service.md`](./admin-management-service.md)（業務邏輯層）

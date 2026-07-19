@@ -16,6 +16,7 @@ from app.core.exceptions import (
     BadRequestError,
     BusinessRuleError,
     ConflictError,
+    ForbiddenError,
     NotFoundError,
     UnauthorizedError,
 )
@@ -130,29 +131,29 @@ async def test_create_default_is_not_protected(db_session: AsyncSession) -> None
     assert admin.is_protected is False
 
 
-async def test_create_protected_super_admin(db_session: AsyncSession) -> None:
-    """seed 建 root：is_protected=True + SUPER_ADMIN（CHECK 相容）。§3.1/§3.7。"""
+async def test_create_protected_root(db_session: AsyncSession) -> None:
+    """protected root：is_protected=True + ROOT（CHECK 相容，bootstrap §2.6）。"""
     svc = AdminService(db_session)
     admin = await svc.create(
-        username="root",
+        username="rootadmin",
         name="Root",
         password="longpassword",
-        admin_role=AdminRole.SUPER_ADMIN,
+        admin_role=AdminRole.ROOT,
         is_protected=True,
     )
     assert admin.is_protected is True
-    assert admin.admin_role == AdminRole.SUPER_ADMIN.value
+    assert admin.admin_role == AdminRole.ROOT.value
 
 
-async def test_create_protected_non_super_raises(db_session: AsyncSession) -> None:
-    """is_protected=True 但非 super_admin → CHECK ck_admins_protected_is_super 擋（IntegrityError）。"""
+async def test_create_protected_non_root_raises(db_session: AsyncSession) -> None:
+    """is_protected=True 但非 ROOT → CHECK ck_admins_protected_is_super 擋（IntegrityError）。"""
     svc = AdminService(db_session)
     with pytest.raises(IntegrityError):
         await svc.create(
             username="badprot",
             name="B",
             password="longpassword",
-            admin_role=AdminRole.EDITOR,
+            admin_role=AdminRole.SUPER_ADMIN,
             is_protected=True,
         )
 
@@ -222,7 +223,9 @@ async def _mk(
         username=username,
         name=username,
         password="longpassword",
-        admin_role=AdminRole.SUPER_ADMIN if protected else role,
+        admin_role=AdminRole.ROOT
+        if protected
+        else role,  # protected root 為 ROOT（bootstrap §2.6）
         is_protected=protected,
     )
 
@@ -250,11 +253,12 @@ async def test_set_admin_role_demote_non_protected_super(db_session: AsyncSessio
     assert updated.admin_role == AdminRole.EDITOR.value  # root 仍在，無需計數
 
 
-async def test_set_admin_role_demote_protected_root_raises(db_session: AsyncSession) -> None:
+async def test_set_admin_role_other_admin_touches_root_403(db_session: AsyncSession) -> None:
+    """§2.6：其他 admin 對 root set_admin_role → 403（ForbiddenError，非本人不可碰 root）。"""
     svc = AdminService(db_session)
     root = await _mk(svc, "root", protected=True)
     actor = await _mk(svc, "act", AdminRole.SUPER_ADMIN)
-    with pytest.raises(BusinessRuleError):
+    with pytest.raises(ForbiddenError):
         await svc.set_admin_role(
             root.id, admin_role=AdminRole.EDITOR, actor_principal_id=actor.principal_id
         )
@@ -278,25 +282,25 @@ async def test_set_admin_role_idempotent_same_level(db_session: AsyncSession) ->
     assert updated.admin_role == AdminRole.EDITOR.value  # 等級未變、無自我提權誤擋
 
 
-async def test_set_admin_role_idempotent_protected_root_super(db_session: AsyncSession) -> None:
-    """H2：對受保護 root 設回 super_admin（同級）→ idempotent 成功、不被守衛誤擋。"""
+async def test_set_admin_role_idempotent_protected_root_self(db_session: AsyncSession) -> None:
+    """H2：root 對自己設回 ROOT（同級）→ idempotent 成功、不被守衛誤擋。"""
     svc = AdminService(db_session)
     root = await _mk(svc, "root", protected=True)
-    actor = await _mk(svc, "act", AdminRole.SUPER_ADMIN)
     updated = await svc.set_admin_role(
-        root.id, admin_role=AdminRole.SUPER_ADMIN, actor_principal_id=actor.principal_id
+        root.id, admin_role=AdminRole.ROOT, actor_principal_id=root.principal_id
     )
-    assert updated.admin_role == AdminRole.SUPER_ADMIN.value
+    assert updated.admin_role == AdminRole.ROOT.value
 
 
 # ── archive / delete 守衛（§3.5/§3.6/§7.4）──
 
 
 async def test_archive_protected_root_raises(db_session: AsyncSession) -> None:
+    """§2.6：其他 admin archive root → 403（ForbiddenError，非本人不可碰 root）。"""
     svc = AdminService(db_session)
     root = await _mk(svc, "root", protected=True)
     actor = await _mk(svc, "act", AdminRole.SUPER_ADMIN)
-    with pytest.raises(BusinessRuleError):
+    with pytest.raises(ForbiddenError):
         await svc.archive(root.id, actor_principal_id=actor.principal_id)
 
 

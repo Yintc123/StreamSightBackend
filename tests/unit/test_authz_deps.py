@@ -33,8 +33,8 @@ async def test_require_editor_rejects_viewer() -> None:
 
 async def test_require_editor_allows_editor_and_super() -> None:
     dep = require_min_admin_role(AdminRole.EDITOR)
-    assert (await dep(admin=_admin(AdminRole.EDITOR))).admin_role == "editor"
-    assert (await dep(admin=_admin(AdminRole.SUPER_ADMIN))).admin_role == "super_admin"
+    assert (await dep(admin=_admin(AdminRole.EDITOR))).admin_role == AdminRole.EDITOR
+    assert (await dep(admin=_admin(AdminRole.SUPER_ADMIN))).admin_role == AdminRole.SUPER_ADMIN
 
 
 async def test_require_super_admin_rejects_editor() -> None:
@@ -45,7 +45,7 @@ async def test_require_super_admin_rejects_editor() -> None:
 
 async def test_require_super_admin_allows_super_admin() -> None:
     dep = require_min_admin_role(AdminRole.SUPER_ADMIN)
-    assert (await dep(admin=_admin(AdminRole.SUPER_ADMIN))).admin_role == "super_admin"
+    assert (await dep(admin=_admin(AdminRole.SUPER_ADMIN))).admin_role == AdminRole.SUPER_ADMIN
 
 
 # ── require_min_tier ──
@@ -59,4 +59,4 @@ async def test_require_premium_rejects_free() -> None:
 
 async def test_require_premium_allows_premium() -> None:
     dep = require_min_tier(UserTier.PREMIUM)
-    assert (await dep(user=_user(UserTier.PREMIUM))).user_tier == "premium"
+    assert (await dep(user=_user(UserTier.PREMIUM))).user_tier == UserTier.PREMIUM

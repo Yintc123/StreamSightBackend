@@ -55,6 +55,15 @@ class AdminRepository(BaseRepository[Admin]):
         result: Result[tuple[Admin]] = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def protected_root_exists(self) -> bool:
+        """是否已有 protected root（`is_protected=True`）——ensure_initial_admin 的冪等鍵（bootstrap §3.1）。
+
+        `is_protected` 只由 seed 設 → protected 列 ⟺ bootstrap root；保證最多一個 root。
+        """
+        stmt = select(func.count()).select_from(Admin).where(Admin.is_protected.is_(True))
+        result = await self.session.execute(stmt)
+        return result.scalar_one() > 0
+
     async def list_admins(
         self, *, status: AdminStatusFilter, limit: int, offset: int
     ) -> Sequence[AdminListRow]:

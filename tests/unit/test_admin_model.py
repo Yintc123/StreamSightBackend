@@ -13,7 +13,7 @@ from app.repositories.principal import PrincipalRepository
 
 
 async def _make_admin(
-    db_session: AsyncSession, *, username: str, admin_role: str | None = None
+    db_session: AsyncSession, *, username: str, admin_role: int | None = None
 ) -> Admin:
     principal: Principal = await PrincipalRepository(db_session).create(Role.ADMIN)
     kwargs: dict = {}
@@ -68,7 +68,7 @@ async def test_admin_role_defaults_to_viewer(db_session: AsyncSession) -> None:
 
 async def test_admin_role_check_rejects_out_of_domain(db_session: AsyncSession) -> None:
     with pytest.raises(IntegrityError):
-        await _make_admin(db_session, username="bad", admin_role="root")
+        await _make_admin(db_session, username="bad", admin_role=3)  # 非 (0,50,100,999)
 
 
 # ── is_protected + 兩條單列 CHECK（admin-management-model §2.3/§7.1）──
@@ -78,7 +78,7 @@ async def _make_protected(
     db_session: AsyncSession,
     *,
     username: str,
-    admin_role: str = "super_admin",
+    admin_role: int = AdminRole.ROOT.value,
     archived: bool = False,
     deleted: bool = False,
 ) -> Admin:
@@ -106,14 +106,14 @@ async def test_is_protected_defaults_to_false(db_session: AsyncSession) -> None:
     assert fetched.is_protected is False
 
 
-async def test_protected_must_be_super_admin(db_session: AsyncSession) -> None:
-    # ck_admins_protected_is_super：protected 且非 super_admin → IntegrityError
+async def test_protected_must_be_root(db_session: AsyncSession) -> None:
+    # ck_admins_protected_is_super：protected 且非 ROOT(999) → IntegrityError
     with pytest.raises(IntegrityError):
-        await _make_protected(db_session, username="p1", admin_role="editor")
+        await _make_protected(db_session, username="p1", admin_role=AdminRole.SUPER_ADMIN.value)
 
 
-async def test_protected_super_admin_writes_ok(db_session: AsyncSession) -> None:
-    admin = await _make_protected(db_session, username="p2", admin_role="super_admin")
+async def test_protected_root_writes_ok(db_session: AsyncSession) -> None:
+    admin = await _make_protected(db_session, username="p2", admin_role=AdminRole.ROOT.value)
     assert admin.is_protected is True
 
 

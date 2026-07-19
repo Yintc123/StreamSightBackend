@@ -19,7 +19,7 @@ from app.core.enums import Role
 def create_access_token(
     subject: str | int,
     role: Role = Role.USER,
-    grade: str | None = None,
+    grade: int | None = None,
     sid: str | None = None,
     expire_seconds: int | None = None,
 ) -> str:
@@ -74,10 +74,10 @@ def extract_role(payload: dict[str, Any]) -> Role:
         return Role.USER
 
 
-def extract_grade(payload: dict[str, Any]) -> str | None:
-    """解析 grade claim（該身分的等級字串）：缺 key → None。
+def extract_grade(payload: dict[str, Any]) -> int | None:
+    """解析 grade claim（該身分的等級 int，rank=value）：缺 key → None。
 
-    grade 僅為前端 UX 提示、非授權邊界（後端授權讀 child 現值）。見 rbac §4/§5.5。
+    grade 僅為前端 UX 提示、非授權邊界（後端授權讀 child 現值）。見 rbac §4/§5.5、enum-int。
     """
     return payload.get("grade")
 

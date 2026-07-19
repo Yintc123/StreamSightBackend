@@ -17,11 +17,11 @@ from app.services.ws.protocol import WSMessageType
 
 
 def test_welcome_wire_shape() -> None:
-    msg = WelcomeMessage(connection_id="c-1", admin_role="editor")
+    msg = WelcomeMessage(connection_id="c-1", admin_role=50)
     assert msg.model_dump(mode="json") == {
         "type": "welcome",
         "connection_id": "c-1",
-        "admin_role": "editor",
+        "admin_role": 50,
     }
 
 

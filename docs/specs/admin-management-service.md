@@ -5,7 +5,15 @@
 > - **bootstrap 流程**:設定 SSM 的 `INITIAL_ADMIN_*` → 以它登入 → 建立 DB admin。
 > - §3.7（Seed）、§6（復原）已據此改寫;其餘提及 seed／受保護 root 之處以本註記為準。
 
-> 狀態：**已實作（✅ 547 tests 全綠，ruff / pyright 通過）** ／ 目標版本：next+2 ／ 開發模式：**嚴格 TDD（見 `CLAUDE.md`）**
+> 🔺 **變更註記 2（root 落地為真實 DB 列 + IntEnum，權威 delta；衝突以本註記為準）**——依 [`bootstrap-hidden-admin.md`](./bootstrap-hidden-admin.md) + [`enum-int.md`](./enum-int.md)（規劃中，待實作）：
+> 1. **SSM 哨兵 → 真實 DB root**：初始 admin 改為開機 `ensure_initial_admin` upsert 成**真實 `admins` 列**（`admin_role=ROOT`、`is_protected=True`；id 自增、非哨兵 0），登入/授權/改密碼全走一般路徑（移除 §3.7 的哨兵、`sub==0`、「不可改密碼」等特判）。「≥1 super_admin」由此 protected root 地板保證。
+> 2. **`admin_role` → `IntEnum`**（含 **`ROOT=999`**）；`ADMIN_ROLE_RANK` dict **移除**，`require_min_*` 直接比值（`enum-int.md`）。§3.2/§3.5 的 `ADMIN_ROLE_RANK[...]`、`admin.admin_role == 'super_admin'` 等改為 int 比較。
+> 3. **新增 `_guard_protected_target(target, actor)`**：`target.is_protected and actor != target → ForbiddenError(403)`，**套到 `update`（補現有無守衛漏洞）與 `set_admin_role`**；archive/delete 既有 `_guard_transition` 的 is_protected 分支語意併入。→ **其他 admin 不可改 root 之任何資訊（403）；root 可自管**（bootstrap §2.6）。
+> 4. 既有 `_guard_transition` 的 **is_protected 不變式**（連 root 自己都不能降級/archive/delete）維持 **422 `BusinessRuleError`**；**「跨人操作 protected」為 403**（先驗 `_guard_protected_target`）。
+> 5. **`create` 仍恆 `is_protected=False`**（root 不經 API 建，走 `ensure_initial_admin`）；§3.7「seed 建 root」改為 startup upsert。
+> 6. **root-only API**：日後掛 `require_min_admin_role(AdminRole.ROOT)`（只有 root 過）。root 作為 actor＝完整 super_admin（grade ROOT ≥ super_admin）。
+
+> 狀態：**已實作（✅ 547 tests 全綠）；⚠️ 部分內容由「🔺 變更註記 2」反轉為「待實作」**（SSM 哨兵→真實 root、admin_role IntEnum+刪 rank dict、新增 `_guard_protected_target`——見上方 delta；實作見 [`implementation-roadmap.md`](./implementation-roadmap.md)）／ 目標版本：next+2 ／ 開發模式：**嚴格 TDD（見 `CLAUDE.md`）**
 >
 > 📎 本文是「Admin 管理」三份規格的 **Service 層**（業務邏輯）。另兩份：
 > - [`admin-management-model.md`](./admin-management-model.md)（資料模型層）

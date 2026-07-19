@@ -28,7 +28,7 @@ from app.api.dependencies import (
     get_ws_reauth_service,
 )
 from app.core.config import get_app_settings
-from app.core.enums import ADMIN_ROLE_RANK, AdminRole
+from app.core.enums import AdminRole
 from app.dtos.ws import (
     ControlMessage,
     ErrorMessage,
@@ -38,11 +38,6 @@ from app.dtos.ws import (
 )
 from app.models import Admin
 from app.repositories.admin import AdminRepository
-from app.services.initial_admin import (
-    INITIAL_ADMIN_PRINCIPAL_ID,
-    build_initial_admin,
-    initial_admin_enabled,
-)
 from app.services.ws.manager import Connection, ConnectionManager
 from app.services.ws.protocol import WSCloseCode, WSMessageType
 from app.services.ws.reauth import WsReauthService
@@ -77,11 +72,8 @@ async def _load_active_admin(
 ) -> Admin | None:
     """重載 Admin 讀現值（is_active + admin_role），開短命 session、用畢即還（§2.2）。
 
-    principal_id == 0（初始 admin）：合成 super_admin、不查 DB（config 停用則回 None）。
-    一般 admin：查 DB，inactive／不存在 → None。
+    bootstrap root 為真實 DB admin → 一律查 DB，inactive／不存在 → None（無哨兵特判）。
     """
-    if principal_id == INITIAL_ADMIN_PRINCIPAL_ID:
-        return build_initial_admin() if initial_admin_enabled() else None
     async with session_factory() as session:
         admin: Admin | None = await AdminRepository(session).get_by_principal_id(principal_id)
     return admin if (admin is not None and admin.is_active) else None
@@ -137,9 +129,7 @@ async def _handle_control(manager: ConnectionManager, conn: Connection, raw: obj
 
     if msg.type is WSMessageType.SUBSCRIBE:
         min_role: AdminRole | None = topic_min_role(msg.topic)
-        if min_role is not None and (
-            ADMIN_ROLE_RANK[AdminRole(conn.admin_role)] < ADMIN_ROLE_RANK[min_role]
-        ):
+        if min_role is not None and conn.admin_role < min_role:  # rank = value（IntEnum）
             await manager.send_to_connection(
                 conn,
                 ErrorMessage(

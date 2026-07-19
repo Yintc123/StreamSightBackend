@@ -2,6 +2,12 @@
 
 > 🔄 **變更註記（後續演進，晚於本文）**：本文描述的 **seed script（`scripts/create_admin.py`）與 `initial_admin_password`（明文）／`initial_admin_name` 用於建立 DB 初始 admin 之部分已不適用**。現況:第一位 super admin 改為 **SSM-backed「初始 admin」**（`INITIAL_ADMIN_USERNAME` + `INITIAL_ADMIN_PASSWORD_HASH` 雜湊；**不進 DB**、哨兵 `principal_id=0`、恆 `super_admin`；`app/services/initial_admin.py`），登入後用它建立 DB admin;**seed 腳本已移除**。config 現為 `initial_admin_username` / `initial_admin_name`（可選顯示名）/ `initial_admin_password_hash`。下文凡提及「seed script／`initial_admin_password`（明文）」處以本註記為準（見 [`admin-management-service.md`](./admin-management-service.md) §3.7）。本文的 username 登入／封存軟刪除／`admin_role` 欄等其餘設計不受影響。
 
+> 🔺 **變更註記 2（`admin_role` IntEnum + ROOT + 真實 root，權威 delta；衝突以本註記為準）**——依 [`enum-int.md`](./enum-int.md) + [`bootstrap-hidden-admin.md`](./bootstrap-hidden-admin.md)（規劃中）：
+> 1. **`AdminRole` 由 `StrEnum` → `IntEnum`**（§「AdminRole 新增」line 122-125）：`VIEWER=0/EDITOR=50/SUPER_ADMIN=100/**ROOT=999**`（新增 ROOT）。欄型 `admin_role` **`String(20)` → `SmallInteger`**；程式 `AdminRole(admin.admin_role)`（int→member）不變。
+> 2. **CHECK `admin_role IN ('super_admin','editor','viewer')` → `IN (0,50,100,999)`**（line 206/250）；上限不變式 `admin_role < 1000`。`is_protected⟹super_admin` → `⟹ROOT(999)`（enum-int migration 一併改）。
+> 3. **密碼政策單一真相**：本文 `password` `min_length=8`（DTO）抽為共用 `validate_admin_password()`，供 bootstrap `_validate_admin_fields` 共用（bootstrap §3.3）。
+> 4. **初始 admin 哨兵 → 真實 DB root**：上方註記 1 的「哨兵 `principal_id=0`、合成 super_admin、不進 DB」**反轉**為 bootstrap §3「開機 upsert 真實 root 列（`admin_role=ROOT`、`is_protected=True`）」。`admin_role` 欄本身設計不受影響（僅型別 str→int + 值）。
+
 > 狀態：**已實作（✅ 547 tests 全綠，ruff / pyright 通過）** ／ 目標版本：next ／ 開發模式：**嚴格 TDD（見 `CLAUDE.md`）**
 >
 > 🔗 依賴並延伸 [`jwt-role-and-admin.md`](./jwt-role-and-admin.md)——本規格只調整既有 **`Admin` child 模型**與其認證／管理路徑，`principals` supertype、複合 FK、JWT role、refresh token 擁有者機制**一律沿用不動**。

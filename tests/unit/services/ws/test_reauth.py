@@ -38,11 +38,6 @@ async def _add_refresh(
     await session.commit()
 
 
-async def test_initial_admin_always_valid(db_session: AsyncSession) -> None:
-    svc = WsReauthService(_factory(db_session))
-    assert await svc.is_connection_valid(principal_id=0, sid=None, now=datetime.now(UTC)) is True
-
-
 async def test_active_admin_with_live_session_valid(db_session: AsyncSession) -> None:
     admin = await AdminService(db_session).create(
         username="re-1", name="A", password="longpassword", admin_role=AdminRole.EDITOR
