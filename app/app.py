@@ -69,6 +69,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
                 maxlen=settings.monitoring_log_stream_maxlen,
                 batch_size=settings.monitoring_log_flush_batch_size,
                 interval=float(settings.monitoring_log_flush_interval_seconds),
+                minid_seconds=settings.monitoring_retention_seconds,
             ),
             name="monitoring-log-flusher",
         )
