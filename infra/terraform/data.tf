@@ -67,11 +67,11 @@ data "aws_ssm_parameter" "refresh_token_hash_secret" {
 }
 
 # Initial super-admin — only fetched when use_initial_admin = true.
-# The overview stack must have set initial_admin_password_hash so all three
+# The overview stack must have set initial_admin_password so all three
 # SSM params exist; flip use_initial_admin to true after that apply.
-data "aws_ssm_parameter" "initial_admin_password_hash" {
+data "aws_ssm_parameter" "initial_admin_password" {
   count = var.use_initial_admin ? 1 : 0
-  name  = "/${var.project}/backend/initial_admin_password_hash"
+  name  = "/${var.project}/backend/initial_admin_password"
 }
 
 data "aws_ssm_parameter" "initial_admin_username" {

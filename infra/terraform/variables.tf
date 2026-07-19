@@ -83,7 +83,7 @@ variable "ws_allowed_origins" {
 }
 
 variable "use_initial_admin" {
-  description = "Inject initial super-admin credentials from SSM into the task. Enable only when the overview stack has set initial_admin_password_hash — all three SSM params (/backend/initial_admin_password_hash, /backend/initial_admin_username, /backend/initial_admin_name) must exist before apply."
+  description = "Inject initial super-admin credentials from SSM into the task. Enable only when the overview stack has set initial_admin_password — all three SSM params (/backend/initial_admin_password, /backend/initial_admin_username, /backend/initial_admin_name) must exist before apply."
   type        = bool
   default     = false
 }

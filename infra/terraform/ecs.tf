@@ -71,7 +71,7 @@ resource "aws_ecs_task_definition" "app" {
         { name = "REFRESH_TOKEN_HASH_SECRET", valueFrom = data.aws_ssm_parameter.refresh_token_hash_secret.arn },
       ],
       var.use_initial_admin ? [
-        { name = "INITIAL_ADMIN_PASSWORD_HASH", valueFrom = data.aws_ssm_parameter.initial_admin_password_hash[0].arn },
+        { name = "INITIAL_ADMIN_PASSWORD", valueFrom = data.aws_ssm_parameter.initial_admin_password[0].arn },
         { name = "INITIAL_ADMIN_USERNAME",       valueFrom = data.aws_ssm_parameter.initial_admin_username[0].arn },
         { name = "INITIAL_ADMIN_NAME",           valueFrom = data.aws_ssm_parameter.initial_admin_name[0].arn },
       ] : [],
