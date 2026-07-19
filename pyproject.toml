@@ -19,6 +19,7 @@ dependencies = [
     "redis[hiredis]>=8.0.1",
     "sqlalchemy[asyncio]>=2.0.51",
     "uvicorn>=0.49.0",
+    "websockets>=16.1.1",
 ]
 
 [dependency-groups]
