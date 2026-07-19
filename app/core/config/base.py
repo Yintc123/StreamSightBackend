@@ -232,9 +232,12 @@ class BaseAppSettings(BaseSettings):
         description="可選按時間修剪（MINID，秒）；0 = 只靠 MAXLEN",
     )
 
-    # ── Records（records-service.md §2.2）───────────────────────────────────
-    records_max_page_size: int = Field(
-        default=100, ge=1, le=1000, description="Records 列表每頁上限（service 夾值）"
+    # ── Records（records-model.md §2.7-(1)）──────────────────────────────────
+    records_list_max_page_size: int = Field(
+        default=100, ge=1, le=1000, description="Records 管理列表每頁上限（service 夾值）"
+    )
+    records_analytics_max_page_size: int = Field(
+        default=5000, ge=1, le=10000, description="Records 分析全量拉取每頁上限（有日期範圍時使用）"
     )
     records_default_page_size: int = Field(default=20, ge=1, description="Records 列表預設每頁筆數")
 

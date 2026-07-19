@@ -26,6 +26,7 @@ async def _mk(
     title: str = "T",
     value: float = 1.0,
     deleted: bool = False,
+    created_at: datetime | None = None,
 ) -> Record:
     rec = Record(
         title=title,
@@ -35,6 +36,8 @@ async def _mk(
     )
     if deleted:
         rec.deleted_at = datetime.now(UTC)
+    if created_at is not None:
+        rec.created_at = created_at
     db_session.add(rec)
     await db_session.flush()
     return rec
@@ -44,6 +47,8 @@ def _default_list_kwargs() -> dict:
     return {
         "category_id": None,
         "keyword": None,
+        "date_from": None,
+        "date_to": None,
         "sort_field": RecordSortField.ID,
         "sort_dir": SortDirection.ASC,
         "include_deleted": False,
@@ -186,7 +191,9 @@ async def test_pagination_and_count_share_predicate(
     page3 = await repo.list_records(**{**_default_list_kwargs(), "limit": 2, "offset": 4})
     assert len(page1) == 2
     assert len(page3) == 1  # 第 5 筆
-    total = await repo.count_records(category_id=None, keyword=None, include_deleted=False)
+    total = await repo.count_records(
+        category_id=None, keyword=None, date_from=None, date_to=None, include_deleted=False
+    )
     assert total == 5
 
     # 超末頁 → 空、total 不變
@@ -202,3 +209,89 @@ async def test_get_active_returns_none_for_soft_deleted(
     repo = RecordRepository(db_session)
     assert await repo.get_active(rec.id) is None
     assert await repo.get_active_row(rec.id) is None
+
+
+# ── 日期範圍篩選（§2.7-(2)）──────────────────────────────────────
+
+
+async def test_date_from_excludes_older_records(
+    db_session: AsyncSession, record_categories: list[RecordCategory]
+) -> None:
+    """date_from → created_at >= :date_from；早於截止的記錄不回。"""
+    a = await _admin(db_session, "dr1")
+    cid = record_categories[0].id
+    await _mk(
+        db_session,
+        creator=a,
+        category_id=cid,
+        title="old",
+        created_at=datetime(2020, 1, 1, tzinfo=UTC),
+    )
+    await _mk(
+        db_session,
+        creator=a,
+        category_id=cid,
+        title="new",
+        created_at=datetime(2030, 1, 1, tzinfo=UTC),
+    )
+    repo = RecordRepository(db_session)
+
+    cutoff = datetime(2025, 1, 1, tzinfo=UTC)
+    rows = await repo.list_records(**{**_default_list_kwargs(), "date_from": cutoff})
+    assert [r.record.title for r in rows] == ["new"]
+
+
+async def test_date_to_excludes_newer_records(
+    db_session: AsyncSession, record_categories: list[RecordCategory]
+) -> None:
+    """date_to → created_at < :date_to（開區間右端）；晚於截止的記錄不回。"""
+    a = await _admin(db_session, "dr2")
+    cid = record_categories[0].id
+    await _mk(
+        db_session,
+        creator=a,
+        category_id=cid,
+        title="old",
+        created_at=datetime(2020, 1, 1, tzinfo=UTC),
+    )
+    await _mk(
+        db_session,
+        creator=a,
+        category_id=cid,
+        title="new",
+        created_at=datetime(2030, 1, 1, tzinfo=UTC),
+    )
+    repo = RecordRepository(db_session)
+
+    cutoff = datetime(2025, 1, 1, tzinfo=UTC)
+    rows = await repo.list_records(**{**_default_list_kwargs(), "date_to": cutoff})
+    assert [r.record.title for r in rows] == ["old"]
+
+
+async def test_count_respects_date_range(
+    db_session: AsyncSession, record_categories: list[RecordCategory]
+) -> None:
+    """count_records 與 list_records 共用謂詞——日期範圍同樣生效。"""
+    a = await _admin(db_session, "dr3")
+    cid = record_categories[0].id
+    await _mk(
+        db_session,
+        creator=a,
+        category_id=cid,
+        title="old",
+        created_at=datetime(2020, 1, 1, tzinfo=UTC),
+    )
+    await _mk(
+        db_session,
+        creator=a,
+        category_id=cid,
+        title="new",
+        created_at=datetime(2030, 1, 1, tzinfo=UTC),
+    )
+    repo = RecordRepository(db_session)
+
+    cutoff = datetime(2025, 1, 1, tzinfo=UTC)
+    count = await repo.count_records(
+        category_id=None, keyword=None, date_from=cutoff, date_to=None, include_deleted=False
+    )
+    assert count == 1  # 只有 "new"

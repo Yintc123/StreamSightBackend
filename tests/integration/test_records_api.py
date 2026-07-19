@@ -4,6 +4,8 @@
 AdminService.create 佈局、_login 取 token、_auth 帶 header（比照 test_admin_management_api）。
 """
 
+from datetime import date
+
 from fastapi import status
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -232,3 +234,53 @@ async def test_record_summary_shape_no_updated_by(
         "deleted_at",
     }
     assert "updated_by" not in rec
+
+
+# ── §8.6 日期範圍篩選（§2.7-(2)）────────────────────────────────
+
+
+async def test_list_date_from_future_returns_empty(
+    client: AsyncClient, admin: Admin, record_categories: list[RecordCategory]
+) -> None:
+    """date_from 設遠未來 → total=0（端點正確傳遞至 service → repo）。"""
+    token = await _login(client)
+    await _create(client, token, title="now")
+    resp = await client.get("/records?date_from=2999-12-31", headers=_auth(token))
+    assert resp.status_code == status.HTTP_200_OK
+    assert resp.json()["total"] == 0
+
+
+async def test_list_date_to_past_returns_empty(
+    client: AsyncClient, admin: Admin, record_categories: list[RecordCategory]
+) -> None:
+    """date_to 設遠過去 → total=0。"""
+    token = await _login(client)
+    await _create(client, token, title="now")
+    resp = await client.get("/records?date_to=2000-01-01", headers=_auth(token))
+    assert resp.status_code == status.HTTP_200_OK
+    assert resp.json()["total"] == 0
+
+
+async def test_list_date_range_today_includes_record(
+    client: AsyncClient, admin: Admin, record_categories: list[RecordCategory]
+) -> None:
+    """date_from=today&date_to=today 含當天建立的 record（date_to 推進至明日，開區間）。"""
+    token = await _login(client)
+    created = await _create(client, token, title="today-record")
+    today = date.today().isoformat()
+    resp = await client.get(f"/records?date_from={today}&date_to={today}", headers=_auth(token))
+    assert resp.status_code == status.HTTP_200_OK
+    body = resp.json()
+    assert body["total"] >= 1
+    assert any(item["id"] == created["id"] for item in body["items"])
+
+
+async def test_list_date_range_analytics_size_not_clamped_to_100(
+    client: AsyncClient, admin: Admin, record_categories: list[RecordCategory]
+) -> None:
+    """有日期範圍時 size=1000 不被夾至 100（使用 analytics_max=5000）。"""
+    token = await _login(client)
+    today = date.today().isoformat()
+    resp = await client.get(f"/records?date_from={today}&size=1000", headers=_auth(token))
+    assert resp.status_code == status.HTTP_200_OK
+    assert resp.json()["size"] == 1000  # analytics context，不夾至 100

@@ -1,5 +1,7 @@
 """RecordService：正規化 + CRUD + 匯入（records-service.md §6）。"""
 
+from datetime import date
+
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -199,3 +201,55 @@ async def test_list_categories_active_only_sorted(
     names = [c.name for c in cats]
     assert "退場" not in names
     assert names == ["感測器", "系統", "應用", "網路"]  # 依 sort_order
+
+
+# ── 6.4 日期範圍（§2.7-(1)-(2)）──────────────────────────────────
+
+
+async def test_date_from_future_excludes_all(
+    db_session: AsyncSession, record_categories: list[RecordCategory]
+) -> None:
+    """date_from 設遠未來 → total=0（服務端日期正規化正確傳入 repo）。"""
+    svc = _svc(db_session)
+    actor = await _actor(db_session, "df1")
+    await svc.create_record(RecordCreate(title="X", value=1.0, category="感測器"), actor)
+    _, total, _, _ = await svc.list_records(**_list_kwargs(date_from=date(2999, 12, 31)))
+    assert total == 0
+
+
+async def test_date_to_past_excludes_all(
+    db_session: AsyncSession, record_categories: list[RecordCategory]
+) -> None:
+    """date_to 設遠過去 → total=0（date_to 推進一天後仍不含今天紀錄）。"""
+    svc = _svc(db_session)
+    actor = await _actor(db_session, "df2")
+    await svc.create_record(RecordCreate(title="Y", value=1.0, category="感測器"), actor)
+    _, total, _, _ = await svc.list_records(**_list_kwargs(date_to=date(2000, 1, 1)))
+    assert total == 0
+
+
+async def test_date_to_today_includes_today_record(
+    db_session: AsyncSession, record_categories: list[RecordCategory]
+) -> None:
+    """date_to=today → 推進至明日 00:00 UTC，當天建立的 record 仍在範圍內。"""
+    svc = _svc(db_session)
+    actor = await _actor(db_session, "df3")
+    created = await svc.create_record(
+        RecordCreate(title="today", value=1.0, category="感測器"), actor
+    )
+    today = date.today()
+    rows, total, _, _ = await svc.list_records(**_list_kwargs(date_to=today))
+    assert total >= 1
+    assert any(r.record.id == created.record.id for r in rows)
+
+
+async def test_analytics_max_size_with_date_range(
+    db_session: AsyncSession, record_categories: list[RecordCategory]
+) -> None:
+    """date_from 存在時用 analytics_max（5000），無日期範圍用 list_max（100）。"""
+    svc = _svc(db_session)
+    today = date.today()
+    _, _, _, size_analytics = await svc.list_records(**_list_kwargs(size=1000, date_from=today))
+    _, _, _, size_list = await svc.list_records(**_list_kwargs(size=1000))
+    assert size_analytics == 1000  # 1000 ≤ analytics_max=5000，不夾
+    assert size_list == 100  # 夾至 list_max=100

@@ -6,6 +6,7 @@ category 已轉 id）——正規化與驗證在 service（model §2.7-(1)）。
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime
 
 from sqlalchemy import ColumnElement, Select, func, select
 from sqlalchemy.orm import InstrumentedAttribute
@@ -37,7 +38,12 @@ _SORT_COLUMNS: dict[RecordSortField, InstrumentedAttribute] = {
 
 
 def _predicate(
-    *, category_id: int | None, keyword: str | None, include_deleted: bool
+    *,
+    category_id: int | None,
+    keyword: str | None,
+    date_from: datetime | None,
+    date_to: datetime | None,
+    include_deleted: bool,
 ) -> ColumnElement[bool] | None:
     """count 與 list 共用的謂詞建構器（避免條件漂移，§2.7-(2)）。"""
     clauses: list[ColumnElement[bool]] = []
@@ -47,6 +53,10 @@ def _predicate(
         clauses.append(Record.category_id == category_id)
     if keyword:
         clauses.append(func.lower(Record.title).like(keyword, escape="\\"))
+    if date_from is not None:
+        clauses.append(Record.created_at >= date_from)
+    if date_to is not None:
+        clauses.append(Record.created_at < date_to)
     if not clauses:
         return None
     combined = clauses[0]
@@ -81,6 +91,8 @@ class RecordRepository(BaseRepository[Record]):
         *,
         category_id: int | None,
         keyword: str | None,
+        date_from: datetime | None,
+        date_to: datetime | None,
         sort_field: RecordSortField,
         sort_dir: SortDirection,
         include_deleted: bool,
@@ -90,7 +102,11 @@ class RecordRepository(BaseRepository[Record]):
         """列表（收已驗證 enum，翻 Column/JOIN）；ORDER BY <col> <dir>, id <dir> 穩定分頁（§2.7）。"""
         stmt = _base_row_select()
         predicate = _predicate(
-            category_id=category_id, keyword=keyword, include_deleted=include_deleted
+            category_id=category_id,
+            keyword=keyword,
+            date_from=date_from,
+            date_to=date_to,
+            include_deleted=include_deleted,
         )
         if predicate is not None:
             stmt = stmt.where(predicate)
@@ -108,12 +124,22 @@ class RecordRepository(BaseRepository[Record]):
         return _rows(result.all())
 
     async def count_records(
-        self, *, category_id: int | None, keyword: str | None, include_deleted: bool
+        self,
+        *,
+        category_id: int | None,
+        keyword: str | None,
+        date_from: datetime | None,
+        date_to: datetime | None,
+        include_deleted: bool,
     ) -> int:
         """與 list_records 共用謂詞（篩選後、分頁前筆數，§2.7-(3)）。"""
         stmt = select(func.count()).select_from(Record)
         predicate = _predicate(
-            category_id=category_id, keyword=keyword, include_deleted=include_deleted
+            category_id=category_id,
+            keyword=keyword,
+            date_from=date_from,
+            date_to=date_to,
+            include_deleted=include_deleted,
         )
         if predicate is not None:
             stmt = stmt.where(predicate)

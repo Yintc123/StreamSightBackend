@@ -5,6 +5,8 @@
 路由順序：/records/categories 宣告在 /records/{id} 之前（避免靜態路徑被 int 攔截，§3）。
 """
 
+from datetime import date as DateType
+
 from fastapi import APIRouter, Depends, Query, Response, status
 
 from app.api.dependencies import get_record_service, require_min_admin_role
@@ -34,9 +36,15 @@ async def list_categories(
 @router.get("", response_model=RecordPage)
 async def list_records(
     page: int = Query(1, ge=1),
-    size: int = Query(20, ge=1),  # 不設 le；由 service 夾至 records_max_page_size（§5.1）
+    size: int = Query(20, ge=1),  # 不設 le；由 service 依情境夾值（§2.7-(1)）
     category: str | None = Query(None),
     keyword: str | None = Query(None),
+    date_from: DateType | None = Query(
+        None, description="篩選起始日（含，YYYY-MM-DD；UTC 00:00:00）"
+    ),
+    date_to: DateType | None = Query(
+        None, description="篩選結束日（含當天末，YYYY-MM-DD；推進至隔日 UTC 00:00:00）"
+    ),
     sort: str = Query("id:asc"),
     include_deleted: bool = Query(False),
     _: Admin = Depends(_require_viewer),
@@ -47,6 +55,8 @@ async def list_records(
         size=size,
         category=category,
         keyword=keyword,
+        date_from=date_from,
+        date_to=date_to,
         sort=sort,
         include_deleted=include_deleted,
     )
