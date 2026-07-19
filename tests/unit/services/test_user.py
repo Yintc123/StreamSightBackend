@@ -9,7 +9,7 @@ from app.core.enums import Role
 from app.core.exceptions import ConflictError, NotFoundError
 from app.dtos import UserCreate, UserUpdate
 from app.models import Principal, RefreshToken, User
-from app.repositories.principal import PrincipalRepository
+from app.repositories.repo_principal import PrincipalRepository
 from app.services import UserService
 from tests.payloads import user_payload
 

@@ -15,7 +15,7 @@ from app.core.enums import AdminRole
 from app.core.security import normalize_username
 
 if TYPE_CHECKING:
-    from app.repositories.admin import AdminListRow
+    from app.repositories.repo_admin import AdminListRow
 
 
 class AdminResponse(BaseModel):

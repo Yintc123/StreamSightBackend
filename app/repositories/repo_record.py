@@ -16,7 +16,7 @@ from app.models.admin import Admin
 from app.models.record import Record
 from app.models.record_category import RecordCategory
 
-from .base import BaseRepository
+from .repo_base import BaseRepository
 
 
 @dataclass(frozen=True)

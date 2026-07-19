@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from redis.asyncio import Redis
 
-from app.dtos.monitoring import Page
+from app.dtos.dto_monitoring import Page
 
 if TYPE_CHECKING:
     pass

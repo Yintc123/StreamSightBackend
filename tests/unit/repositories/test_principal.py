@@ -13,8 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.enums import Role
 from app.models import Principal, RefreshToken, User
-from app.repositories.principal import PrincipalRepository
-from app.repositories.user import UserRepository
+from app.repositories.repo_principal import PrincipalRepository
+from app.repositories.repo_user import UserRepository
 
 
 async def test_create_returns_row_with_id_and_role(db_session: AsyncSession) -> None:

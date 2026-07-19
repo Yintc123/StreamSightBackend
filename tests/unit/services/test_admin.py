@@ -21,8 +21,8 @@ from app.core.exceptions import (
     UnauthorizedError,
 )
 from app.models import Admin, Principal, RefreshToken
-from app.repositories.principal import PrincipalRepository
-from app.services.admin import AdminService
+from app.repositories.repo_principal import PrincipalRepository
+from app.services.service_admin import AdminService
 
 
 async def _add_refresh_token(

@@ -1,6 +1,6 @@
 """DbStatsProbe：PoolStatsProbe / 假 probe + DbStatsService（monitoring.md §2.4/§7.4）。"""
 
-from app.dtos.monitoring import DbSample
+from app.dtos.dto_monitoring import DbSample
 from app.services.monitoring.db_probe import DbStatsProbe, PoolStatsProbe
 from app.services.monitoring.db_stats import DbStatsService
 

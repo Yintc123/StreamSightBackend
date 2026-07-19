@@ -8,7 +8,7 @@ from app.core.enums import AdminRole, Role
 from app.models.admin import Admin
 from app.models.record import Record
 from app.models.record_category import RecordCategory
-from app.repositories.principal import PrincipalRepository
+from app.repositories.repo_principal import PrincipalRepository
 from app.services import AdminService
 
 

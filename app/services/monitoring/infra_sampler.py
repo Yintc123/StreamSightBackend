@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Protocol
 if TYPE_CHECKING:
     import redis.asyncio as redis
 
-from app.dtos.monitoring import InfraSnapshot
+from app.dtos.dto_monitoring import InfraSnapshot
 from app.services.monitoring.infra_probe import (
     InfraProbeError,
     compute_buffer_pool_hit_rate,

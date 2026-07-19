@@ -44,13 +44,13 @@ from app.dtos import (
     UserCreate,
 )
 from app.models import Admin, Identity, Principal, RefreshToken, User
-from app.repositories.admin import AdminRepository
-from app.repositories.identity import IdentityRepository
-from app.repositories.principal import PrincipalRepository
-from app.repositories.refresh_token import RefreshTokenRepository
+from app.repositories.repo_admin import AdminRepository
+from app.repositories.repo_identity import IdentityRepository
+from app.repositories.repo_principal import PrincipalRepository
+from app.repositories.repo_refresh_token import RefreshTokenRepository
 
 # bootstrap root 為真實 DB admin（無哨兵）：登入/授權全走一般路徑，不 import initial_admin。
-from app.services.user import UserService
+from app.services.service_user import UserService
 from app.services.ws.publisher import Publisher
 
 logger: logging.Logger = logging.getLogger(__name__)

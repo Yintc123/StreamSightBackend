@@ -1,7 +1,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import User
-from app.repositories.user import UserRepository
+from app.repositories.repo_user import UserRepository
 
 
 async def test_get_by_email_returns_user_when_exists(db_session: AsyncSession, alice: User) -> None:

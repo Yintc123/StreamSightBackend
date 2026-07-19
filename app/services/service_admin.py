@@ -24,10 +24,10 @@ from app.core.exceptions import (
 )
 from app.core.security import normalize_username
 from app.models.admin import Admin
-from app.repositories.admin import AdminListRow, AdminRepository
-from app.repositories.principal import PrincipalRepository
-from app.repositories.refresh_token import RefreshTokenRepository
-from app.services.initial_admin import is_initial_admin_username
+from app.repositories.repo_admin import AdminListRow, AdminRepository
+from app.repositories.repo_principal import PrincipalRepository
+from app.repositories.repo_refresh_token import RefreshTokenRepository
+from app.services.service_initial_admin import is_initial_admin_username
 from app.services.ws.publisher import Publisher
 
 logger: logging.Logger = logging.getLogger(__name__)

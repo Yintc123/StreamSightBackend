@@ -1,7 +1,7 @@
 from app.core.enums import Role
 from app.models.principal import Principal
 
-from .base import BaseRepository
+from .repo_base import BaseRepository
 
 
 class PrincipalRepository(BaseRepository[Principal]):

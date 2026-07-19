@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.dtos.monitoring import LogEntry, Page
+from app.dtos.dto_monitoring import LogEntry, Page
 from app.services.monitoring.store import TimeSeriesStore
 
 _LOG_STREAM = "monitor:stream:logs"

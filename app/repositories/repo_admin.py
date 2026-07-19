@@ -8,7 +8,7 @@ from sqlalchemy.orm import aliased
 from app.core.enums import AdminStatusFilter
 from app.models.admin import Admin
 
-from .base import BaseRepository
+from .repo_base import BaseRepository
 
 
 @dataclass(frozen=True)

@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.enums import AdminRole, Role
 from app.models import Admin, Principal
-from app.repositories.principal import PrincipalRepository
+from app.repositories.repo_principal import PrincipalRepository
 
 
 async def _make_admin(

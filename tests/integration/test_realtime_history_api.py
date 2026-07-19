@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from app.repositories.realtime_reading import RealtimeReadingRepository
+from app.repositories.repo_realtime_reading import RealtimeReadingRepository
 from tests.conftest import ADMIN_PASSWORD, ADMIN_USERNAME
 
 

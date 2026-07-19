@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from app.repositories.realtime_reading import RealtimeReadingRepository
+from app.repositories.repo_realtime_reading import RealtimeReadingRepository
 
 
 def _ts(offset_seconds: int = 0) -> datetime:

@@ -11,8 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.enums import AdminStatusFilter, Role
 from app.models import Admin, Principal
-from app.repositories.admin import AdminRepository
-from app.repositories.principal import PrincipalRepository
+from app.repositories.repo_admin import AdminRepository
+from app.repositories.repo_principal import PrincipalRepository
 
 
 async def _make_admin(db_session: AsyncSession, *, username: str, name: str = "A") -> Admin:

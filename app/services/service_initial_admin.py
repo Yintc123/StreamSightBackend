@@ -22,8 +22,8 @@ from app.core.security import (
     validate_admin_username,
 )
 from app.models.admin import Admin
-from app.repositories.admin import AdminRepository
-from app.repositories.principal import PrincipalRepository
+from app.repositories.repo_admin import AdminRepository
+from app.repositories.repo_principal import PrincipalRepository
 
 logger = logging.getLogger(__name__)
 

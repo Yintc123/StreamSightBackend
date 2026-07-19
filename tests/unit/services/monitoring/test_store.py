@@ -3,7 +3,7 @@
 import fakeredis.aioredis
 import pytest
 
-from app.dtos.monitoring import Page
+from app.dtos.dto_monitoring import Page
 from app.services.monitoring.store import RedisStreamStore
 
 

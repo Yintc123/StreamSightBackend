@@ -3,7 +3,7 @@ from sqlalchemy.engine import Result
 
 from app.models.identity import Identity
 
-from .base import BaseRepository
+from .repo_base import BaseRepository
 
 
 class IdentityRepository(BaseRepository[Identity]):

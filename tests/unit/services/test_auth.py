@@ -13,7 +13,7 @@ from app.core.enums import Role
 from app.core.exceptions import ConflictError, UnauthorizedError
 from app.dtos import LoginRequest, RegisterRequest
 from app.models import Principal, User
-from app.repositories.principal import PrincipalRepository
+from app.repositories.repo_principal import PrincipalRepository
 from app.services import AuthService
 
 
@@ -212,7 +212,7 @@ async def test_login_nonexistent_email_still_calls_dummy_verify(
         calls.append(stored_hash)
         return False
 
-    monkeypatch.setattr("app.services.auth.verify_password_or_dummy", _fake_verify)
+    monkeypatch.setattr("app.services.service_auth.verify_password_or_dummy", _fake_verify)
 
     auth = AuthService(db_session)
     with pytest.raises(UnauthorizedError):

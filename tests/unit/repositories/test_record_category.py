@@ -3,7 +3,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.record_category import RecordCategory
-from app.repositories.record_category import RecordCategoryRepository
+from app.repositories.repo_record_category import RecordCategoryRepository
 
 
 async def test_list_active_excludes_inactive_and_orders(db_session: AsyncSession) -> None:

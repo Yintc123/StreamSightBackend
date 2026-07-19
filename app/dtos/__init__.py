@@ -1,4 +1,4 @@
-from .auth import (
+from .dto_auth import (
     AdminLoginRequest,
     CurrentPrincipal,
     LoginRequest,
@@ -6,8 +6,8 @@ from .auth import (
     RegisterRequest,
     TokenPayload,
 )
-from .record import ImportResult, RecordCreate, RecordUpdate, RowError
-from .user import UserBase, UserCreate, UserUpdate
+from .dto_record import ImportResult, RecordCreate, RecordUpdate, RowError
+from .dto_user import UserBase, UserCreate, UserUpdate
 
 __all__ = [
     "AdminLoginRequest",

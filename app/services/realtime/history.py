@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import BadRequestError
 from app.models.realtime_reading import RealtimeReading
-from app.repositories.realtime_reading import RealtimeReadingRepository
+from app.repositories.repo_realtime_reading import RealtimeReadingRepository
 
 
 class RealtimeHistoryService:

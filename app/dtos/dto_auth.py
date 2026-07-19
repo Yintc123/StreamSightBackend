@@ -14,7 +14,7 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 from app.core.enums import Role
 from app.core.security import normalize_username
 
-from .user import UserBase
+from .dto_user import UserBase
 
 
 @dataclass(frozen=True)

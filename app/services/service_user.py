@@ -8,8 +8,8 @@ from app.core.exceptions import ConflictError, NotFoundError
 from app.core.security import mask_email
 from app.dtos import UserCreate, UserUpdate
 from app.models.user import User
-from app.repositories.principal import PrincipalRepository
-from app.repositories.user import UserRepository
+from app.repositories.repo_principal import PrincipalRepository
+from app.repositories.repo_user import UserRepository
 
 logger: logging.Logger = logging.getLogger(__name__)
 

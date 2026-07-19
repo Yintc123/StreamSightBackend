@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.enums import Role, UserTier
 from app.models import Principal, User
-from app.repositories.principal import PrincipalRepository
+from app.repositories.repo_principal import PrincipalRepository
 
 
 async def _make_user(db_session: AsyncSession, *, name: str, user_tier: str | None = None) -> User:

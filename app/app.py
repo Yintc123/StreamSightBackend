@@ -11,7 +11,7 @@ from .core.db import AsyncSessionLocal, engine
 from .core.exceptions import setup_exception_handlers
 from .core.logging import setup_logging
 from .core.redis import close_redis, redis_client
-from .services.initial_admin import ensure_initial_admin
+from .services.service_initial_admin import ensure_initial_admin
 from .services.monitoring.db_probe import MariaDbStatsProbe, PoolStatsProbe
 from .services.monitoring.infra_probe import InfraProbe
 from .services.monitoring.infra_sampler import InfraSampler

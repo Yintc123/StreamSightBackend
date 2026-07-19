@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.services.ws.publisher import Publisher
 
 if TYPE_CHECKING:
-    from app.repositories.realtime_reading import RealtimeReadingRepository
+    from app.repositories.repo_realtime_reading import RealtimeReadingRepository
 
 logger = logging.getLogger(__name__)
 
@@ -104,7 +104,7 @@ class RealtimeStreamer:
                 await self._repo.bulk_insert(list(self._batch))
             elif self._session_factory is not None:
                 # Production 路徑：每次 flush 開一個短命 session
-                from app.repositories.realtime_reading import RealtimeReadingRepository
+                from app.repositories.repo_realtime_reading import RealtimeReadingRepository
 
                 async with self._session_factory() as session:
                     repo = RealtimeReadingRepository(session)

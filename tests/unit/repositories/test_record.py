@@ -8,7 +8,7 @@ from app.core.enums import AdminRole, RecordSortField, SortDirection
 from app.models.admin import Admin
 from app.models.record import Record
 from app.models.record_category import RecordCategory
-from app.repositories.record import RecordRepository
+from app.repositories.repo_record import RecordRepository
 from app.services import AdminService
 
 

@@ -11,8 +11,8 @@ from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.repositories.admin import AdminRepository
-from app.repositories.refresh_token import RefreshTokenRepository
+from app.repositories.repo_admin import AdminRepository
+from app.repositories.repo_refresh_token import RefreshTokenRepository
 
 # 「開一個 async session 的工廠」：呼叫回一個 yield AsyncSession 的 async context manager。
 # 同時容納生產的 async_sessionmaker（`AsyncSessionLocal()` → AsyncSession，本身即 async CM）

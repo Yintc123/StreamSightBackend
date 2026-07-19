@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
     from app.models.record_category import RecordCategory
-    from app.repositories.record import RecordListRow
+    from app.repositories.repo_record import RecordListRow
 
 
 class RecordSummary(BaseModel):

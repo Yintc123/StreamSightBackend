@@ -1,6 +1,6 @@
 """HTTP response schemas for user endpoints.
 
-Input DTOs (UserCreate / UserUpdate) 定義在 `app.dtos.user` — framework-agnostic。
+Input DTOs (UserCreate / UserUpdate) 定義在 `app.dtos.dto_user` — framework-agnostic。
 本檔案只放 HTTP-specific 的 output shape（server-generated 欄位、from_attributes 設定）。
 """
 

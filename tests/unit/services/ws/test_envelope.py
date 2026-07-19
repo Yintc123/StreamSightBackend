@@ -6,7 +6,7 @@
 import pytest
 from pydantic import ValidationError
 
-from app.dtos.ws import (
+from app.dtos.dto_ws import (
     ControlMessage,
     ErrorMessage,
     EventMessage,

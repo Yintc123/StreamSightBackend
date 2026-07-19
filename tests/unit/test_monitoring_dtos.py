@@ -1,6 +1,6 @@
 """monitoring DTO 驗證（monitoring.md §3）。"""
 
-from app.dtos.monitoring import DbHistoryResponse, DbSample, LogEntry, Page
+from app.dtos.dto_monitoring import DbHistoryResponse, DbSample, LogEntry, Page
 
 
 def test_log_entry_required_fields() -> None:
@@ -63,7 +63,7 @@ def test_page_with_items() -> None:
 
 # ── InfraSnapshot + InfraHistoryResponse（infra-monitoring.md §3.1）──
 
-from app.dtos.monitoring import InfraHistoryResponse, InfraSnapshot  # noqa: E402
+from app.dtos.dto_monitoring import InfraHistoryResponse, InfraSnapshot  # noqa: E402
 
 
 def test_infra_snapshot_required_fields() -> None:

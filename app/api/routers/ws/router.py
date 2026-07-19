@@ -29,7 +29,7 @@ from app.api.dependencies import (
 )
 from app.core.config import get_app_settings
 from app.core.enums import AdminRole
-from app.dtos.ws import (
+from app.dtos.dto_ws import (
     ControlMessage,
     ErrorMessage,
     PingMessage,
@@ -37,7 +37,7 @@ from app.dtos.ws import (
     WelcomeMessage,
 )
 from app.models import Admin
-from app.repositories.admin import AdminRepository
+from app.repositories.repo_admin import AdminRepository
 from app.services.ws.manager import Connection, ConnectionManager
 from app.services.ws.protocol import WSCloseCode, WSMessageType
 from app.services.ws.reauth import WsReauthService

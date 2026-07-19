@@ -18,7 +18,7 @@ from app.api.dependencies.services import (
 from app.core.config import get_app_settings
 from app.core.enums import AdminRole
 from app.core.exceptions import BadRequestError, ServiceUnavailableError
-from app.dtos.monitoring import (
+from app.dtos.dto_monitoring import (
     DbHistoryResponse,
     DbSample,
     InfraHistoryResponse,

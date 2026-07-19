@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_app_settings
 from app.core.enums import AdminRole
 from app.models.admin import Admin
-from app.services.initial_admin import ensure_initial_admin
+from app.services.service_initial_admin import ensure_initial_admin
 
 _IA_USERNAME = "bootstrapadmin"
 _IA_PASSWORD = "initial-strong-pw"

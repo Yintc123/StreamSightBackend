@@ -6,7 +6,7 @@ from sqlalchemy import select
 
 from app.models.record_category import RecordCategory
 
-from .base import BaseRepository
+from .repo_base import BaseRepository
 
 
 class RecordCategoryRepository(BaseRepository[RecordCategory]):

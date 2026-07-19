@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.enums import AdminRole
 from app.core.exceptions import RecordNotFoundError, RecordValidationError
-from app.dtos.record import RecordCreate, RecordUpdate
+from app.dtos.dto_record import RecordCreate, RecordUpdate
 from app.models.admin import Admin
 from app.models.record import Record
 from app.models.record_category import RecordCategory

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.dtos.monitoring import DbSample
+from app.dtos.dto_monitoring import DbSample
 from app.services.monitoring.db_probe import DbStatsProbe
 
 

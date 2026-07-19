@@ -58,7 +58,7 @@ async def test_admin_login_nonexistent_raises_and_runs_verify(db_session: AsyncS
 
     with (
         patch(
-            "app.services.auth.verify_password_or_dummy",
+            "app.services.service_auth.verify_password_or_dummy",
             new=AsyncMock(return_value=False),
         ) as spy,
         pytest.raises(UnauthorizedError),

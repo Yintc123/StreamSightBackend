@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.dtos.monitoring import Page
+from app.dtos.dto_monitoring import Page
 from app.services.monitoring.store import TimeSeriesStore
 
 _ALLOWED_STREAMS = {"db"}

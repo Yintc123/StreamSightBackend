@@ -14,12 +14,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_app_settings
 from app.core.enums import DEFAULT_SORT, RecordSortField, SortDirection
 from app.core.exceptions import RecordNotFoundError, RecordValidationError
-from app.dtos.record import ImportResult, RecordCreate, RecordUpdate, RowError
+from app.dtos.dto_record import ImportResult, RecordCreate, RecordUpdate, RowError
 from app.models.admin import Admin
 from app.models.record import Record
 from app.models.record_category import RecordCategory
-from app.repositories.record import RecordListRow, RecordRepository
-from app.repositories.record_category import RecordCategoryRepository
+from app.repositories.repo_record import RecordListRow, RecordRepository
+from app.repositories.repo_record_category import RecordCategoryRepository
 
 _BULK_MAX_ROWS = 1000
 

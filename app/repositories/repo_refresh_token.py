@@ -7,7 +7,7 @@ from sqlalchemy.engine import CursorResult, Result
 
 from app.models.refresh_token import RefreshToken
 
-from .base import BaseRepository
+from .repo_base import BaseRepository
 
 
 class RefreshTokenRepository(BaseRepository[RefreshToken]):
