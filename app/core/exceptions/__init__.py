@@ -10,6 +10,7 @@ from .base import (
     UnauthorizedError,
 )
 from .handlers import setup_exception_handlers
+from .record import RecordNotFoundError, RecordValidationError
 
 __all__ = [
     "AppException",
@@ -18,6 +19,8 @@ __all__ = [
     "ConflictError",
     "ForbiddenError",
     "NotFoundError",
+    "RecordNotFoundError",
+    "RecordValidationError",
     "ServiceUnavailableError",
     "SystemErrorCode",
     "UnauthorizedError",

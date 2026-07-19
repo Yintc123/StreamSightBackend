@@ -6,11 +6,16 @@ from .auth import (
     RegisterRequest,
     TokenPayload,
 )
+from .record import ImportResult, RecordCreate, RecordUpdate, RowError
 from .user import UserBase, UserCreate, UserUpdate
 
 __all__ = [
     "AdminLoginRequest",
     "CurrentPrincipal",
+    "ImportResult",
+    "RecordCreate",
+    "RecordUpdate",
+    "RowError",
     "UserBase",
     "UserCreate",
     "UserUpdate",

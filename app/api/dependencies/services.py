@@ -3,7 +3,7 @@ from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.core.config import get_app_settings
-from app.services import AdminService, AuthService, UserService
+from app.services import AdminService, AuthService, RecordService, UserService
 from app.services.monitoring.db_probe import MariaDbStatsProbe, PoolStatsProbe
 from app.services.monitoring.db_stats import DbStatsService
 from app.services.monitoring.logs import LogQueryService
@@ -58,6 +58,13 @@ def get_user_service(
 ) -> UserService:
     """FastAPI dependency: build a UserService bound to the request's session."""
     return UserService(session)
+
+
+def get_record_service(
+    session: AsyncSession = Depends(get_session),
+) -> RecordService:
+    """FastAPI dependency: build a RecordService bound to the request's session（records §2.6）。"""
+    return RecordService(session)
 
 
 def get_auth_service(

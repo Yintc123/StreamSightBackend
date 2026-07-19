@@ -34,6 +34,7 @@ from app.core.enums import AdminRole
 from app.core.redis import RedisCache
 from app.dtos import UserCreate, UserUpdate
 from app.models.admin import Admin
+from app.models.record_category import RecordCategory
 from app.models.user import User
 from app.services import AdminService, UserService
 from tests.payloads import user_payload
@@ -242,6 +243,23 @@ async def admin(db_session: AsyncSession) -> Admin:
         password=ADMIN_PASSWORD,
         admin_role=AdminRole.SUPER_ADMIN,
     )
+
+
+# 四個初始分類（對映前端 CATEGORIES 順序）；migration 於真實 DB seed，測試走 create_all
+# 需由本 fixture 注入，供 records 相關測試建立資料時滿足 FK（records-model.md §6）。
+RECORD_CATEGORY_NAMES: list[str] = ["感測器", "系統", "應用", "網路"]
+
+
+@pytest.fixture
+async def record_categories(db_session: AsyncSession) -> list[RecordCategory]:
+    """種入四筆初始分類（is_active=True、sort_order=0..3）。"""
+    categories = [
+        RecordCategory(name=name, label=name, sort_order=i, is_active=True)
+        for i, name in enumerate(RECORD_CATEGORY_NAMES)
+    ]
+    db_session.add_all(categories)
+    await db_session.flush()
+    return categories
 
 
 # ────────────────────────────────────────────────
