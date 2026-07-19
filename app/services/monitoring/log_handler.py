@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 
 from app.services.monitoring.store import TimeSeriesStore
 
@@ -50,10 +51,13 @@ async def run_log_flusher(
     maxlen: int,
     batch_size: int,
     interval: float = 1.0,
+    minid_seconds: int = 0,
     flush_once: bool = False,
 ) -> None:
     """背景 flush task：每 interval 秒或滿 batch_size 則批次 XADD。
 
+    minid_seconds > 0 → 每次 flush 同時帶 MINID ~（now - retention_ms），淘汰過期筆。
+    minid_seconds = 0 → 只靠 MAXLEN，不帶 MINID（預設行為，向後相容）。
     flush_once=True 用於測試（只跑一輪後返回）。
     失敗只 log warning，不中斷（best-effort）。
     """
@@ -69,8 +73,11 @@ async def run_log_flusher(
 
         if batch:
             entries = [{k: v for k, v in item.items() if v is not None} for item in batch]
+            minid: int | None = (
+                int(time.time() * 1000) - minid_seconds * 1000 if minid_seconds > 0 else None
+            )
             try:
-                await store.append_many(stream, entries, maxlen=maxlen)
+                await store.append_many(stream, entries, maxlen=maxlen, minid=minid)
             except Exception:
                 _logger.warning("monitoring log flush failed", exc_info=True)
 

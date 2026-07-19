@@ -119,3 +119,66 @@ async def test_flusher_continues_on_store_error(monkeypatch: pytest.MonkeyPatch)
         batch_size=10,
         flush_once=True,
     )
+
+
+async def test_flusher_passes_minid_when_retention_set(monkeypatch: pytest.MonkeyPatch) -> None:
+    """minid_seconds > 0 → append_many 收到非 None 的 minid（≈ now_ms - retention_ms）。"""
+    import time
+
+    queue: asyncio.Queue[dict] = asyncio.Queue(maxsize=100)
+    store = RedisStreamStore(fakeredis.aioredis.FakeRedis())
+
+    captured: dict = {}
+    original = store.append_many
+
+    async def _spy(*a: object, **kw: object) -> list[str]:
+        captured["minid"] = kw.get("minid")
+        return await original(*a, **kw)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(store, "append_many", _spy)
+
+    queue.put_nowait({"ts": 1, "level": "INFO", "logger": "x", "message": "m"})
+    retention_seconds = 3600
+
+    await run_log_flusher(
+        queue,
+        store,
+        stream="monitor:stream:logs",
+        maxlen=1000,
+        batch_size=10,
+        minid_seconds=retention_seconds,
+        flush_once=True,
+    )
+
+    assert captured.get("minid") is not None
+    expected_approx = int(time.time() * 1000) - retention_seconds * 1000
+    assert abs(captured["minid"] - expected_approx) < 5_000  # 5 秒容差
+
+
+async def test_flusher_passes_no_minid_when_retention_zero(monkeypatch: pytest.MonkeyPatch) -> None:
+    """minid_seconds=0（預設）→ append_many 收到 minid=None（只靠 MAXLEN）。"""
+    queue: asyncio.Queue[dict] = asyncio.Queue(maxsize=100)
+    store = RedisStreamStore(fakeredis.aioredis.FakeRedis())
+
+    captured: dict = {}
+    original = store.append_many
+
+    async def _spy(*a: object, **kw: object) -> list[str]:
+        captured["minid"] = kw.get("minid")
+        return await original(*a, **kw)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(store, "append_many", _spy)
+
+    queue.put_nowait({"ts": 1, "level": "INFO", "logger": "x", "message": "m"})
+
+    await run_log_flusher(
+        queue,
+        store,
+        stream="monitor:stream:logs",
+        maxlen=1000,
+        batch_size=10,
+        minid_seconds=0,
+        flush_once=True,
+    )
+
+    assert captured.get("minid") is None
