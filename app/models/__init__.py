@@ -2,6 +2,7 @@
 from .admin import Admin
 from .identity import Identity
 from .principal import Principal
+from .realtime_reading import RealtimeReading
 from .record import Record
 from .record_category import RecordCategory
 from .refresh_token import RefreshToken
@@ -11,6 +12,7 @@ __all__ = [
     "Admin",
     "Identity",
     "Principal",
+    "RealtimeReading",
     "Record",
     "RecordCategory",
     "RefreshToken",

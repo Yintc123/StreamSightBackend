@@ -241,6 +241,12 @@ class BaseAppSettings(BaseSettings):
     )
     records_default_page_size: int = Field(default=20, ge=1, description="Records 列表預設每頁筆數")
 
+    # ── Realtime Stream（realtime-stream.md §2.1/§2.4）──────────────────────
+    realtime_stream_enabled: bool = Field(
+        default=True,
+        description="False 時不起 RealtimeStreamer background task（測試/精簡部署）",
+    )
+
     # ── Infra Monitoring（infra-monitoring.md §4.3）─────────────────────────
     monitoring_infra_enabled: bool = Field(
         default=True,

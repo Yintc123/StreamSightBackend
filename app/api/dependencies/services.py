@@ -9,6 +9,7 @@ from app.services.monitoring.db_stats import DbStatsService
 from app.services.monitoring.logs import LogQueryService
 from app.services.monitoring.metrics import MetricQueryService
 from app.services.monitoring.store import RedisStreamStore, TimeSeriesStore
+from app.services.realtime.history import RealtimeHistoryService
 from app.services.ws.publisher import Publisher
 from app.services.ws.reauth import WsReauthService
 from app.services.ws.ticket import TicketService
@@ -111,3 +112,10 @@ def get_metric_query_service(
     store: TimeSeriesStore = Depends(get_time_series_store),
 ) -> MetricQueryService:
     return MetricQueryService(store)
+
+
+def get_realtime_history_service(
+    session: AsyncSession = Depends(get_session),
+) -> RealtimeHistoryService:
+    """FastAPI dependency: build a RealtimeHistoryService（realtime-history.md §3.2）。"""
+    return RealtimeHistoryService(session)

@@ -18,6 +18,7 @@ from .services.monitoring.infra_sampler import InfraSampler
 from .services.monitoring.log_handler import RedisStreamLogHandler, run_log_flusher
 from .services.monitoring.sampler import MonitoringSampler
 from .services.monitoring.store import RedisStreamStore
+from .services.realtime.streamer import RealtimeStreamer
 from .services.ws import ConnectionManager
 from .services.ws.bridge import WsBridge
 from .services.ws.protocol import WSCloseCode
@@ -93,6 +94,17 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         await sampler.start()
         app.state.monitoring_sampler = sampler
 
+    # startup：Realtime Streamer（realtime-stream.md §5.3 / realtime-history.md §5.2）
+    # session_factory：每次 _flush() 開一個短命 session → commit → 關閉（無 stale session 問題）
+    streamer: RealtimeStreamer | None = None
+    if settings.realtime_stream_enabled:
+        streamer = RealtimeStreamer(
+            publisher=Publisher(redis_client),
+            redis_client=redis_client,
+            session_factory=AsyncSessionLocal,
+        )
+        await streamer.start()
+
     # startup：Infra Monitoring（infra-monitoring.md §2.9）
     infra_sampler: InfraSampler | None = None
     if settings.monitoring_infra_enabled and settings.app_env != "test":
@@ -115,6 +127,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         app.state.infra_sampler = infra_sampler
 
     yield
+
+    # shutdown：Realtime Streamer
+    if streamer:
+        await streamer.stop()
 
     # shutdown：infra sampler
     if infra_sampler:

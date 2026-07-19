@@ -5,6 +5,7 @@ from .routers import (
     auth_router,
     health_router,
     monitoring_router,
+    realtime_router,
     records_router,
     users_router,
     ws_router,
@@ -19,5 +20,6 @@ api_router.include_router(admin_router)
 api_router.include_router(ws_router)
 api_router.include_router(monitoring_router)
 api_router.include_router(records_router)
+api_router.include_router(realtime_router)
 
 __all__ = ["api_router"]

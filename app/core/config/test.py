@@ -25,3 +25,6 @@ class TestAppSettings(BaseAppSettings):
     database_echo: bool = False
 
     # encryption_key: conftest.py 在 import 時設定 os.environ["ENCRYPTION_KEY"]
+
+    # realtime stream：測試不起 background task
+    realtime_stream_enabled: bool = False

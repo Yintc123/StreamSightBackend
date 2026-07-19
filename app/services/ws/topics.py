@@ -11,6 +11,7 @@ from app.core.enums import AdminRole
 TOPIC_MIN_ROLE: dict[str, AdminRole] = {
     "monitor.logs": AdminRole.SUPER_ADMIN,
     "monitor.db": AdminRole.VIEWER,
+    "realtime.stream": AdminRole.VIEWER,  # realtime-stream.md §2.1
 }
 
 
