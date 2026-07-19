@@ -20,12 +20,19 @@ if TYPE_CHECKING:
 class TimeSeriesStore(Protocol):
     """可抽換時序 Store 介面（monitoring.md §2.2）。"""
 
-    async def append(self, stream: str, entry: dict, *, maxlen: int | None = None) -> str:
+    async def append(
+        self, stream: str, entry: dict, *, maxlen: int | None = None, minid: int | None = None
+    ) -> str:
         """寫入一筆，回 entry id（<ms>-<seq>）。"""
         ...
 
     async def append_many(
-        self, stream: str, entries: list[dict], *, maxlen: int | None = None
+        self,
+        stream: str,
+        entries: list[dict],
+        *,
+        maxlen: int | None = None,
+        minid: int | None = None,
     ) -> list[str]:
         """批次寫入 N 筆（pipeline transaction=False，N 筆 → 1 round-trip），回 id list。"""
         ...
@@ -49,28 +56,38 @@ class RedisStreamStore:
     def __init__(self, client: Redis) -> None:
         self._r = client
 
-    async def append(self, stream: str, entry: dict, *, maxlen: int | None = None) -> str:
+    async def append(
+        self, stream: str, entry: dict, *, maxlen: int | None = None, minid: int | None = None
+    ) -> str:
         raw_id = await self._r.xadd(
             stream,
             {k: str(v) for k, v in entry.items()},
             maxlen=maxlen,
-            approximate=bool(maxlen),
+            approximate=maxlen is not None or minid is not None,
+            minid=minid,
         )
         return raw_id.decode() if isinstance(raw_id, bytes) else str(raw_id)
 
     async def append_many(
-        self, stream: str, entries: list[dict], *, maxlen: int | None = None
+        self,
+        stream: str,
+        entries: list[dict],
+        *,
+        maxlen: int | None = None,
+        minid: int | None = None,
     ) -> list[str]:
         """批次寫入 N 筆（pipeline transaction=False，N 筆 → 1 round-trip），回 id list。"""
         if not entries:
             return []
+        approximate = maxlen is not None or minid is not None
         pipe = self._r.pipeline(transaction=False)
         for entry in entries:
             pipe.xadd(
                 stream,
                 {k: str(v) for k, v in entry.items()},
                 maxlen=maxlen,
-                approximate=bool(maxlen),
+                approximate=approximate,
+                minid=minid,
             )
         raw_ids = await pipe.execute()
         return [raw_id.decode() if isinstance(raw_id, bytes) else str(raw_id) for raw_id in raw_ids]

@@ -91,6 +91,45 @@ async def test_append_many_maxlen_trims_oldest(store: RedisStreamStore) -> None:
     assert len(page.items) == 3
 
 
+async def test_append_accepts_minid_kwarg(store: RedisStreamStore) -> None:
+    """append/append_many 接受 minid 參數不拋（minid=0 → 不修剪任何筆）。"""
+    eid = await store.append("s_mid", {"k": "v"}, minid=0)
+    assert isinstance(eid, str)
+
+
+async def test_append_many_accepts_minid_kwarg(store: RedisStreamStore) -> None:
+    """append_many 接受 minid 關鍵字參數不拋。"""
+    ids = await store.append_many("s_mid2", [{"k": "v"}, {"k": "v2"}], minid=0)
+    assert len(ids) == 2
+
+
+async def test_append_many_minid_trims_old_entries() -> None:
+    """append_many 帶 minid → Stream ID 小於 minid 的舊筆被修剪，新筆保留。
+
+    透過 raw FakeRedis 注入「遠古」ID（1000-0、2000-0），再呼叫 append_many(minid=5000)。
+    minid=5000 → 修剪 ID < 5000 的筆；新筆 auto-ID ≈ 現在毫秒（>> 5000），應保留。
+    """
+    import fakeredis.aioredis
+
+    redis = fakeredis.aioredis.FakeRedis()
+    s = RedisStreamStore(redis)
+
+    # 注入舊筆（顯式 ID，遠小於 minid=5000）
+    await redis.xadd("s_minid_trim", {"n": "old1"}, id="1000-0")
+    await redis.xadd("s_minid_trim", {"n": "old2"}, id="2000-0")
+
+    page_before = await s.query("s_minid_trim", limit=100)
+    assert len(page_before.items) == 2
+
+    # 寫入新筆，同時帶 minid=5000 修剪 ID < 5000 的舊筆
+    await s.append_many("s_minid_trim", [{"n": "new"}], minid=5000)
+
+    page_after = await s.query("s_minid_trim", limit=100)
+    # old1(1000-0)、old2(2000-0) 均 < 5000，應被修剪；新筆（now ms >> 5000）保留
+    assert len(page_after.items) == 1
+    assert page_after.items[0]["n"] == "new"
+
+
 async def test_query_cursor_no_repeat_no_miss(store: RedisStreamStore) -> None:
     for i in range(6):
         await store.append("s5", {"n": str(i)})
