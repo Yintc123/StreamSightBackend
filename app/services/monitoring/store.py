@@ -59,13 +59,17 @@ class RedisStreamStore:
     async def append(
         self, stream: str, entry: dict, *, maxlen: int | None = None, minid: int | None = None
     ) -> str:
+        # XADD 只允許單一修剪策略：兩者都給時 XADD 帶 MAXLEN，MINID 改由 XTRIM 執行
+        xadd_minid = minid if maxlen is None else None
         raw_id = await self._r.xadd(
             stream,
             {k: str(v) for k, v in entry.items()},
             maxlen=maxlen,
-            approximate=maxlen is not None or minid is not None,
-            minid=minid,
+            approximate=maxlen is not None or xadd_minid is not None,
+            minid=xadd_minid,
         )
+        if maxlen is not None and minid is not None:
+            await self._r.xtrim(stream, minid=minid, approximate=True)
         return raw_id.decode() if isinstance(raw_id, bytes) else str(raw_id)
 
     async def append_many(
@@ -79,7 +83,9 @@ class RedisStreamStore:
         """批次寫入 N 筆（pipeline transaction=False，N 筆 → 1 round-trip），回 id list。"""
         if not entries:
             return []
-        approximate = maxlen is not None or minid is not None
+        # XADD 只允許單一修剪策略：兩者都給時 XADD 帶 MAXLEN，MINID 改由批次尾端 XTRIM 執行
+        xadd_minid = minid if maxlen is None else None
+        approximate = maxlen is not None or xadd_minid is not None
         pipe = self._r.pipeline(transaction=False)
         for entry in entries:
             pipe.xadd(
@@ -87,9 +93,13 @@ class RedisStreamStore:
                 {k: str(v) for k, v in entry.items()},
                 maxlen=maxlen,
                 approximate=approximate,
-                minid=minid,
+                minid=xadd_minid,
             )
-        raw_ids = await pipe.execute()
+        trim_by_xtrim = maxlen is not None and minid is not None
+        if trim_by_xtrim:
+            pipe.xtrim(stream, minid=minid, approximate=True)
+        results = await pipe.execute()
+        raw_ids = results[:-1] if trim_by_xtrim else results
         return [raw_id.decode() if isinstance(raw_id, bytes) else str(raw_id) for raw_id in raw_ids]
 
     async def query(

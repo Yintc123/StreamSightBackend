@@ -130,6 +130,31 @@ async def test_append_many_minid_trims_old_entries() -> None:
     assert page_after.items[0]["n"] == "new"
 
 
+async def test_append_maxlen_and_minid_together_does_not_raise(store: RedisStreamStore) -> None:
+    """append 同時帶 maxlen + minid → 不拋（redis-py XADD 只允許單一修剪策略）。"""
+    eid = await store.append("s_both_one", {"k": "v"}, maxlen=100, minid=0)
+    assert isinstance(eid, str)
+
+
+async def test_append_many_maxlen_and_minid_together_trims_by_minid() -> None:
+    """append_many 同時帶 maxlen + minid → 不拋 DataError，且 minid 修剪仍生效。
+
+    重現 bug：log flusher 在 retention 開啟時同時傳 maxlen + minid，
+    redis-py XADD 只允許一種修剪策略（MAXLEN 或 MINID），同時傳會拋 DataError。
+    """
+    redis = fakeredis.aioredis.FakeRedis()
+    s = RedisStreamStore(redis)
+
+    # 注入遠古 ID（< minid=5000），應被修剪
+    await redis.xadd("s_both_many", {"n": "old"}, id="1000-0")
+
+    ids = await s.append_many("s_both_many", [{"n": "new1"}, {"n": "new2"}], maxlen=100, minid=5000)
+    assert len(ids) == 2
+
+    page = await s.query("s_both_many", limit=100)
+    assert [item["n"] for item in page.items] == ["new1", "new2"]
+
+
 async def test_query_cursor_no_repeat_no_miss(store: RedisStreamStore) -> None:
     for i in range(6):
         await store.append("s5", {"n": str(i)})
